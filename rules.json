@@ -1,0 +1,23 @@
+{
+  "trend_strength": {
+    "growth": 0.30,
+    "velocity": 0.25,
+    "volume": 0.20,
+    "cross_platform": 0.15,
+    "persistence": 0.10
+  },
+  "brand_fit": {
+    "category_match": 0.30,
+    "audience_match": 0.25,
+    "territory_match": 0.20,
+    "product_relevance": 0.15,
+    "safety": 0.10
+  },
+  "actionability": {
+    "channel_clarity": 0.30,
+    "product_link": 0.25,
+    "audience_clarity": 0.20,
+    "timing": 0.15,
+    "evidence_quality": 0.10
+  }
+}
