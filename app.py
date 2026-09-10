@@ -1,7 +1,10 @@
 import json
+import os
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException, Header
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from core.extractors import extract
@@ -23,13 +26,27 @@ def home(): return FileResponse(ROOT / "static/index.html")
 @app.get("/api/brands")
 def brands(): return [{"id": b["id"], "name": b["name"]} for b in BRANDS]
 
+@app.get("/api/config")
+def public_config(): return {"supabase_url": os.getenv("SUPABASE_URL", ""), "supabase_anon_key": os.getenv("SUPABASE_ANON_KEY", "")}
+
+def require_user(authorization: str | None):
+    if not authorization or not authorization.lower().startswith("bearer "): raise HTTPException(401, "Debes iniciar sesión.")
+    url, key = os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY")
+    if not url or not key: raise HTTPException(500, "Supabase no está configurado en el servidor.")
+    req = Request(f"{url.rstrip('/')}/auth/v1/user", headers={"apikey": key, "Authorization": authorization})
+    try:
+        with urlopen(req, timeout=8) as response: return json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, ValueError): raise HTTPException(401, "La sesión no es válida o ha expirado.")
+
 @app.get("/api/history")
-def history():
+def history(authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
     if not HISTORY_FILE.exists(): return []
-    return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))[-50:][::-1]
+    return [x for x in json.loads(HISTORY_FILE.read_text(encoding="utf-8")) if x.get("user_id") == user.get("id")][-50:][::-1]
 
 @app.post("/api/analyze")
-async def analyze(file: UploadFile = File(...), brand_id: str = Form(...)):
+async def analyze(file: UploadFile = File(...), brand_id: str = Form(...), authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
     selected = BRANDS if brand_id == "all" else [b for b in BRANDS if b["id"] == brand_id]
     if not selected: raise HTTPException(400, "Marca no encontrada.")
     data = await file.read()
@@ -49,6 +66,6 @@ async def analyze(file: UploadFile = File(...), brand_id: str = Form(...)):
     response = analyses[0] if len(analyses) == 1 else {"trend": trend, "source_file": file.filename, "comparison": [{k: a[k] for k in ["brand", "brand_fit", "actionability", "recommendation"]} for a in analyses], "best_brand": analyses[0]["brand"], "best_analysis": analyses[0]}
     HISTORY_FILE.parent.mkdir(exist_ok=True)
     history = json.loads(HISTORY_FILE.read_text(encoding="utf-8")) if HISTORY_FILE.exists() else []
-    history.append({"created_at": datetime.now(timezone.utc).isoformat(), "source_file": file.filename, "trend_name": trend["name"], "best_brand": response.get("brand", response.get("best_brand")), "result": response})
+    history.append({"created_at": datetime.now(timezone.utc).isoformat(), "user_id": user.get("id"), "source_file": file.filename, "trend_name": trend["name"], "best_brand": response.get("brand", response.get("best_brand")), "result": response})
     HISTORY_FILE.write_text(json.dumps(history[-200:], ensure_ascii=False, indent=2), encoding="utf-8")
     return response

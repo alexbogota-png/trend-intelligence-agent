@@ -30,3 +30,7 @@ El scoring es determinístico y devuelve sus resultados aunque no haya LLM. Si s
 - Desglose de componentes de cada score.
 - Historial local en `data/history.json` y endpoint `GET /api/history`.
 - Pesos separados de la lógica en `config/rules.json`.
+
+## Autenticación
+
+La interfaz usa Supabase Auth para registro, login, confirmación de correo y cierre de sesión. El backend valida el token de Supabase antes de permitir análisis o consultar el historial. Configura `SUPABASE_URL` y `SUPABASE_ANON_KEY` como variables de entorno. Nunca subas un archivo `.env` al repositorio.
