@@ -64,8 +64,13 @@ async def analyze(file: UploadFile = File(...), brand_id: str = Form(...), autho
         analyses.append(result)
     analyses.sort(key=lambda x: (x["brand_fit"] + x["actionability"]) / 2, reverse=True)
     response = analyses[0] if len(analyses) == 1 else {"trend": trend, "source_file": file.filename, "comparison": [{k: a[k] for k in ["brand", "brand_fit", "actionability", "recommendation"]} for a in analyses], "best_brand": analyses[0]["brand"], "best_analysis": analyses[0]}
-    HISTORY_FILE.parent.mkdir(exist_ok=True)
-    history = json.loads(HISTORY_FILE.read_text(encoding="utf-8")) if HISTORY_FILE.exists() else []
-    history.append({"created_at": datetime.now(timezone.utc).isoformat(), "user_id": user.get("id"), "source_file": file.filename, "trend_name": trend["name"], "best_brand": response.get("brand", response.get("best_brand")), "result": response})
-    HISTORY_FILE.write_text(json.dumps(history[-200:], ensure_ascii=False, indent=2), encoding="utf-8")
+    # El sistema de archivos de Vercel no es un almacenamiento persistente.
+    # El resultado del análisis no debe fallar si no se puede guardar el historial local.
+    try:
+        HISTORY_FILE.parent.mkdir(exist_ok=True)
+        history = json.loads(HISTORY_FILE.read_text(encoding="utf-8")) if HISTORY_FILE.exists() else []
+        history.append({"created_at": datetime.now(timezone.utc).isoformat(), "user_id": user.get("id"), "source_file": file.filename, "trend_name": trend["name"], "best_brand": response.get("brand", response.get("best_brand")), "result": response})
+        HISTORY_FILE.write_text(json.dumps(history[-200:], ensure_ascii=False, indent=2), encoding="utf-8")
+    except (OSError, ValueError):
+        pass
     return response
