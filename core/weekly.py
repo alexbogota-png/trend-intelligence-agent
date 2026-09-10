@@ -62,8 +62,18 @@ def _xlsx_records(text: str) -> list[dict]:
     except (ValueError, TypeError): return []
 
 def _conversation_label(raw: str) -> str:
-    text = str(raw or "").replace("\\n", " ").splitlines()[0].strip()
+    lines = str(raw or "").replace("\\n", " ").splitlines()
+    text = (lines[0] if lines else "").strip()
     low = _fold(text)
+    if "rexona" in low and ("desodor" in low or "clinical" in low or "antiperspir" in low):
+        return "Rexona: desempeño y protección del desodorante"
+    if ("dove" in low or "pond" in low) and any(x in low for x in ["serum", "hidrat", "crema", "piel", "skincare"]):
+        brand = "Dove" if "dove" in low else "Pond’s"
+        return f"{brand}: hidratación y cuidado de la piel"
+    if any(x in low for x in ["hidrat", "serum corporal", "crema corporal", "cuidado de la piel"]):
+        return "Hidratación y cuidado de la piel"
+    if any(x in low for x in ["desodor", "antiperspir", "clinical"]):
+        return "Desodorantes y protección corporal"
     if "juanfer" in low or "juan fernando quintero" in low or "quintero" in low:
         return "Juanfer Quintero y su salida de la Selección Colombia"
     if "seleccion colombia" in low or "seleccion nacional" in low:
@@ -93,7 +103,8 @@ def _weekly_analysis(text: str, filename: str) -> dict | None:
     trend_rows = []
     for name, count in current_trends.most_common(8):
         old = previous_trends.get(name, 0); change = count - old
-        label = f"subió {change:+d} menciones vs. la semana anterior" if previous_key else "concentró el mayor volumen del periodo"
+        movement = f"subió {change} menciones" if change > 0 else f"bajó {abs(change)} menciones" if change < 0 else "se mantuvo estable"
+        label = f"{movement} vs. la semana anterior" if previous_key else "concentró el mayor volumen del periodo"
         trend_rows.append({"name": name, "count": count, "previous": old, "change": change, "label": label})
     def brand_rows(brand):
         aliases = {"Rexona": ["rexona"], "Pond’s": ["pond", "pond's", "pond’s"], "Dove": ["dove"]}[brand]
@@ -120,7 +131,8 @@ def _weekly_analysis(text: str, filename: str) -> dict | None:
     brand_bullets = []
     for brand, data in brand_data.items():
         topics = ", ".join(t for t, _ in data["topics"]) or "sin tema dominante identificado"
-        movement = f"subió {data['mentions']-data['previous']:+d} frente a la semana anterior" if previous_key else "sin comparación semanal disponible"
+        difference = data['mentions']-data['previous']
+        movement = (f"subió {difference}" if difference > 0 else f"bajó {abs(difference)}" if difference < 0 else "se mantuvo estable") + " menciones frente a la semana anterior" if previous_key else "sin comparación semanal disponible"
         conversation = "; ".join(f"{name} ({count})" for name, count in data["conversations"]) or "sin conversación de marca identificada"
         brand_bullets.append(f"{brand}: {data['mentions']} menciones, {movement}. Conversaciones principales: {conversation}. Temas: {topics}.")
     comp_bullets = [f"{x['name']} aparece como posible actor competitivo o adyacente en {x['count']} registros del periodo." for x in comp]
