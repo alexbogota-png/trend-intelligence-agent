@@ -46,5 +46,6 @@ def classify_week(text: str, filename: str, week_start: str | None = None) -> di
         else:
             terms = KEYWORDS[section["id"]]
             evidence = [s for s in sentences if any(term in s.lower() for term in terms)][:8] or sentences[:3]
-        sections.append({"id": section["id"], "title": section["title"], "prompt": section["prompt"], "insight": " ".join(evidence[:2]) if evidence else "Pendiente de definir con el template y la taxonomía final.", "comments": "", "evidence": evidence})
+        implications = {"culture": "Observar si esta señal cultural puede convertirse en una oportunidad relevante para la categoría.", "brands": "Identificar qué marca tiene mayor legitimidad para participar y con qué producto o territorio.", "pending": "Esta sección requiere la taxonomía final antes de generar una lectura automática.", "competition": "Comparar la respuesta de la categoría y traducirla en un aprendizaje accionable para nuestras marcas."}
+        sections.append({"id": section["id"], "title": section["title"], "prompt": section["prompt"], "insight": " ".join(evidence[:2]) if evidence else "Pendiente de definir con el template y la taxonomía final.", "implication": implications[section["id"]], "evidence": evidence})
     return {"week_start": week_start or date.today().isoformat(), "title": "One Page semanal", "source_file": filename, "sections": sections, "raw_excerpt": text[:6000]}
