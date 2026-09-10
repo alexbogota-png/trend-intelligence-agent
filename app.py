@@ -5,12 +5,14 @@ from urllib.error import HTTPError, URLError
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, Header
+from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from core.extractors import extract
 from core.normalizer import normalize
 from core.scoring import evaluate
-from core.llm import interpret
+from core.llm import interpret, summarize_weekly
+from core.weekly import classify_week
 
 ROOT = Path(__file__).parent
 app = FastAPI(title="Trend Intelligence Agent", version="0.1.0")
@@ -18,6 +20,7 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 RULES = json.loads((ROOT / "config/rules.json").read_text(encoding="utf-8"))
 BRANDS = json.loads((ROOT / "config/brands.json").read_text(encoding="utf-8"))
 HISTORY_FILE = ROOT / "data" / "history.json"
+WEEKLY_FILE = ROOT / "data" / "weekly_pages.json"
 MAX_FILE_SIZE = 25 * 1024 * 1024
 
 @app.get("/")
@@ -43,6 +46,55 @@ def history(authorization: str | None = Header(default=None)):
     user = require_user(authorization)
     if not HISTORY_FILE.exists(): return []
     return [x for x in json.loads(HISTORY_FILE.read_text(encoding="utf-8")) if x.get("user_id") == user.get("id")][-50:][::-1]
+
+class WeeklyPage(BaseModel):
+    week_start: str
+    title: str
+    source_file: str = ""
+    sections: list[dict]
+    raw_excerpt: str = ""
+
+def _weekly_pages(user_id: str) -> list[dict]:
+    if not WEEKLY_FILE.exists(): return []
+    try: return [x for x in json.loads(WEEKLY_FILE.read_text(encoding="utf-8")) if x.get("user_id") == user_id]
+    except (OSError, ValueError): return []
+
+@app.get("/api/weekly")
+def weekly_list(authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
+    return sorted(_weekly_pages(user.get("id")), key=lambda x: x.get("week_start", ""), reverse=True)
+
+@app.post("/api/weekly/draft")
+async def weekly_draft(file: UploadFile = File(...), week_start: str = Form(default=""), authorization: str | None = Header(default=None)):
+    require_user(authorization)
+    data = await file.read()
+    if len(data) > MAX_FILE_SIZE: raise HTTPException(413, "El archivo supera el máximo permitido de 25 MB.")
+    try: raw = extract(data, file.filename or "raw-data")
+    except Exception as e: raise HTTPException(400, str(e))
+    page = classify_week(raw, file.filename or "raw-data", week_start or None)
+    summaries, error = summarize_weekly(page)
+    if summaries:
+        for section in page["sections"]:
+            if section["id"] in summaries: section["insight"] = summaries[section["id"]]
+        page["llm_used"] = True
+    else: page["llm_used"] = False
+    if error: page["llm_error"] = error
+    return page
+
+@app.put("/api/weekly")
+def weekly_save(page: WeeklyPage, authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
+    pages = []
+    if WEEKLY_FILE.exists():
+        try: pages = json.loads(WEEKLY_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError): pages = []
+    pages = [x for x in pages if not (x.get("user_id") == user.get("id") and x.get("week_start") == page.week_start)]
+    item = page.model_dump(); item["user_id"] = user.get("id"); pages.append(item)
+    try:
+        WEEKLY_FILE.parent.mkdir(exist_ok=True)
+        WEEKLY_FILE.write_text(json.dumps(pages[-200:], ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError: raise HTTPException(503, "El guardado local no está disponible en este servidor. Usa una base de datos para persistir las semanas.")
+    return item
 
 @app.post("/api/analyze")
 async def analyze(file: UploadFile = File(...), brand_id: str = Form(...), authorization: str | None = Header(default=None)):
