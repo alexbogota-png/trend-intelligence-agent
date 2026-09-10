@@ -1,11 +1,12 @@
 import re
+import json
 from datetime import date
 
 SECTIONS = [
-    {"id": "culture", "title": "Hallazgos culturales de la semana", "prompt": "Qué se movió en la cultura y qué nos importa"},
-    {"id": "brands", "title": "Conversaciones relevantes alrededor de nuestras marcas", "prompt": "Rexona, Pond’s y Dove"},
-    {"id": "pending", "title": "Sección pendiente", "prompt": "Pendiente de definir"},
-    {"id": "competition", "title": "Qué vimos en la competencia", "prompt": "Qué activó la categoría y qué aprendemos"},
+    {"id": "culture", "title": "Qué cambió en la cultura", "prompt": "La señal cultural y por qué importa"},
+    {"id": "brands", "title": "Qué significa para nuestras marcas", "prompt": "Conversaciones alrededor de Rexona, Pond’s y Dove"},
+    {"id": "pending", "title": "Qué debemos seguir explorando", "prompt": "Sección pendiente de definir"},
+    {"id": "competition", "title": "Qué hizo la categoría", "prompt": "Activaciones de competencia y aprendizajes"},
 ]
 
 KEYWORDS = {
@@ -17,7 +18,27 @@ KEYWORDS = {
 def _sentences(text: str) -> list[str]:
     return [x.strip() for x in re.split(r"(?<=[.!?])\s+|\n+", text) if len(x.strip()) > 24]
 
+def _readable_source(text: str) -> str:
+    if not text.startswith("__XLSX_JSON__"):
+        return text
+    try:
+        tables = json.loads(text[len("__XLSX_JSON__"):])
+        lines = []
+        useful = {"tendencia", "título", "texto", "temas", "categorías automáticas", "fuente", "sentimiento", "fecha"}
+        for table in tables:
+            rows = table.get("rows", [])
+            if not rows: continue
+            headers = [str(x or "").strip() for x in rows[0]]
+            indexes = [i for i, h in enumerate(headers) if h.lower() in useful]
+            for row in rows[1:201]:
+                values = [f"{headers[i]}: {row[i]}" for i in indexes if i < len(row) and row[i] not in (None, "")]
+                if values: lines.append(" | ".join(values))
+        return "\n".join(lines) or "No se encontraron campos legibles en el XLSX."
+    except (ValueError, TypeError, KeyError):
+        return "No se pudo convertir el XLSX a evidencia legible."
+
 def classify_week(text: str, filename: str, week_start: str | None = None) -> dict:
+    text = _readable_source(text)
     sentences = _sentences(text)
     sections = []
     for section in SECTIONS:
