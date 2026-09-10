@@ -1,5 +1,6 @@
 import re
 import json
+import unicodedata
 from collections import Counter
 from datetime import datetime
 from datetime import date
@@ -60,6 +61,20 @@ def _xlsx_records(text: str) -> list[dict]:
         return records
     except (ValueError, TypeError): return []
 
+def _conversation_label(raw: str) -> str:
+    text = str(raw or "").replace("\\n", " ").splitlines()[0].strip()
+    low = _fold(text)
+    if "juanfer" in low or "juan fernando quintero" in low or "quintero" in low:
+        return "Juanfer Quintero y su salida de la Selección Colombia"
+    if "seleccion colombia" in low or "seleccion nacional" in low:
+        return "Selección Colombia"
+    stop = {"para", "como", "sobre", "esta", "este", "desde", "entre", "cuando", "porque", "tiene", "tambien", "todo", "ante", "tras", "una", "que", "del", "los", "las", "con", "por", "sus", "más", "muy"}
+    tokens = [x for x in re.findall(r"[a-z0-9áéíóúñ]{4,}", low) if x not in stop]
+    return " ".join(tokens[:7]).title() or "Conversación sin tema identificable"
+
+def _fold(value: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", str(value).lower()) if unicodedata.category(c) != "Mn")
+
 def _weekly_analysis(text: str, filename: str) -> dict | None:
     records = _xlsx_records(text)
     dated = [(r, _date_value(r.get("Fecha"))) for r in records]
@@ -71,10 +86,10 @@ def _weekly_analysis(text: str, filename: str) -> dict | None:
     previous = [r for r, d in dated if previous_key and d.isocalendar()[:2] == previous_key]
     def value(row, name): return str(row.get(name) or "").strip()
     def counter(rows, field): return Counter(x for x in (value(r, field) for r in rows) if x)
-    trends, prev_trends = counter(current, "Tendencia"), counter(previous, "Tendencia")
-    def trend_name(x): return x.replace("\\n", " ").splitlines()[0].strip()[:150]
-    current_trends = Counter({trend_name(k): v for k, v in trends.items()})
-    previous_trends = Counter({trend_name(k): v for k, v in prev_trends.items()})
+    def conversation_source(row):
+        return value(row, "Tendencia") or value(row, "Título") or value(row, "Texto") or value(row, "Temas")
+    current_trends = Counter(_conversation_label(conversation_source(r)) for r in current)
+    previous_trends = Counter(_conversation_label(conversation_source(r)) for r in previous)
     trend_rows = []
     for name, count in current_trends.most_common(8):
         old = previous_trends.get(name, 0); change = count - old
@@ -85,7 +100,7 @@ def _weekly_analysis(text: str, filename: str) -> dict | None:
         matched = [r for r in current if any(a in " ".join(value(r, k).lower() for k in ["Texto", "Tendencia", "Temas", "Marcas en la imagen"]) for a in aliases)]
         old_matched = [r for r in previous if any(a in " ".join(value(r, k).lower() for k in ["Texto", "Tendencia", "Temas", "Marcas en la imagen"]) for a in aliases)]
         topics = Counter(t for r in matched for t in re.split(r"[,|]", value(r, "Temas")) if t.strip())
-        conversations = Counter(trend_name(value(r, "Tendencia")) for r in matched if value(r, "Tendencia"))
+        conversations = Counter(_conversation_label(conversation_source(r)) for r in matched)
         return matched, old_matched, topics, conversations
     brand_data = {}
     for brand in ["Rexona", "Pond’s", "Dove"]:
