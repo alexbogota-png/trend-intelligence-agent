@@ -139,9 +139,88 @@ def _weekly_analysis(text: str, filename: str) -> dict | None:
     if not comp_bullets: comp_bullets = ["No se identificaron competidores directos de cuidado personal o belleza en la evidencia disponible.", "La conversación del periodo está dominada por deporte y selección nacional, por lo que los actores visibles son adyacentes, no necesariamente competidores de nuestras marcas."]
     return {"week_start": min(d for _, d in dated if d.isocalendar()[:2] == latest_key).isoformat(), "title": "One Page semanal", "source_file": filename, "comparison": comparison, "metrics": {"current_mentions": len(current), "previous_mentions": len(previous), "top_conversation": trend_rows[0]["name"] if trend_rows else "Sin conversación dominante", "platforms": counter(current, "Fuente").most_common(5)}, "sections": [{"id": "culture", "title": "Qué fue tendencia esta semana", "prompt": "La conversación que movió el periodo", "insight": f"{trend_rows[0]['name']} fue la conversación con mayor volumen, con {trend_rows[0]['count']} menciones." if trend_rows else "No se identificó una conversación dominante.", "implication": "Este es el punto de partida de la lectura: antes de evaluar marcas, entendemos qué conversación tuvo escala.", "bullets": culture_bullets, "evidence": [f"{x['name']} · {x['count']} menciones · anterior: {x['previous']}" for x in trend_rows]}, {"id": "brands", "title": "Cómo impacta a nuestras marcas", "prompt": "Rexona, Pond’s y Dove por separado", "insight": "La relevancia no es igual para las tres marcas. La señal se desglosa por volumen, temas y presencia en el texto.", "implication": "La oportunidad depende de que cada marca tenga legitimidad para entrar en la conversación.", "bullets": brand_bullets, "evidence": []}, {"id": "pending", "title": "", "prompt": "", "insight": "", "implication": "", "bullets": [], "evidence": []}, {"id": "competition", "title": "Qué está haciendo la competencia", "prompt": "Posibles competidores y aprendizaje de categoría", "insight": "El análisis identifica actores que aparecen junto a las conversaciones del periodo y los convierte en señales competitivas.", "implication": "Estas señales sirven para observar quién está ganando presencia y qué tipo de respuesta está generando la categoría.", "bullets": comp_bullets, "evidence": []}], "raw_excerpt": _readable_source(text)[:6000]}
 
+def _v2_text(row: dict) -> str:
+    return " ".join(str(row.get(k) or "") for k in ["Tendencia", "Título", "Texto", "Temas", "Categorías automáticas", "Marcas en la imagen"])
+
+def _v2_label(row: dict) -> str:
+    low = _fold(_v2_text(row))
+    if "juanfer" in low or "juan fernando quintero" in low or "quintero" in low:
+        return "Juanfer Quintero y la Selección Colombia"
+    if "dove" in low and any(x in low for x in ["serum", "hidrat", "crema", "piel", "body care"]):
+        return "Dove y el cuidado de la piel"
+    if "pond" in low and any(x in low for x in ["serum", "hidrat", "crema", "piel", "skincare"]):
+        return "Pond’s y el cuidado de la piel"
+    if "rexona" in low and any(x in low for x in ["desodor", "clinical", "antiperspir"]):
+        return "Rexona y la protección corporal"
+    if any(x in low for x in ["hidrat", "serum corporal", "crema corporal", "skincare", "cuidado de la piel"]):
+        return "Hidratación y cuidado de la piel"
+    if any(x in low for x in ["desodor", "antiperspir", "clinical"]):
+        return "Desodorantes y protección corporal"
+    if any(x in low for x in ["champú", "shampoo", "cabello", "pelo", "hair"]):
+        return "Cuidado del cabello"
+    if any(x in low for x in ["futbol", "fútbol", "seleccion", "deporte", "jugador"]):
+        return "Deporte y cultura popular"
+    if any(x in low for x in ["promocion", "precio", "descuento", "sorteo", "compra"]):
+        return "Promociones y recomendación de producto"
+    return "Otras conversaciones de cuidado personal"
+
+def _v2_movement(current: int, previous: int, has_previous: bool) -> str:
+    if not has_previous: return "sin comparación semanal"
+    delta = current - previous
+    if delta > 0: return f"subió {delta} menciones"
+    if delta < 0: return f"bajó {abs(delta)} menciones"
+    return "se mantuvo estable"
+
+def _weekly_analysis_v2(text: str, filename: str) -> dict | None:
+    records = _xlsx_records(text)
+    dated = [(r, _date_value(r.get("Fecha"))) for r in records]
+    dated = [(r, d) for r, d in dated if d]
+    if not dated: return None
+    periods = sorted({d.isocalendar()[:2] for _, d in dated})
+    current_key = periods[-1]; previous_key = periods[-2] if len(periods) > 1 else None
+    current = [r for r, d in dated if d.isocalendar()[:2] == current_key]
+    previous = [r for r, d in dated if previous_key and d.isocalendar()[:2] == previous_key]
+    current_counts = Counter(_v2_label(r) for r in current)
+    previous_counts = Counter(_v2_label(r) for r in previous)
+    conversation_rows = []
+    for name, count in current_counts.most_common():
+        old = previous_counts.get(name, 0)
+        conversation_rows.append({"name": name, "current": count, "previous": old, "change": count-old, "movement": _v2_movement(count, old, bool(previous_key))})
+    conversation_rows.sort(key=lambda x: (x["current"], x["change"]), reverse=True)
+    named_rows = [x for x in conversation_rows if x["name"] != "Otras conversaciones de cuidado personal"]
+    top = named_rows[0] if named_rows else (conversation_rows[0] if conversation_rows else None)
+    week_label = f"Semana {current_key[1]} de {current_key[0]}"
+    comparison = f"Se comparan {len(current)} menciones de {week_label} con {len(previous)} de la semana anterior." if previous_key else f"El archivo contiene {len(current)} menciones en {week_label}. No hay una semana anterior comparable."
+    if top:
+        executive = f"La conversación con mayor volumen fue {top['name']}, con {top['current']} menciones. {top['movement'].capitalize()} frente a la semana anterior." if previous_key else f"La conversación con mayor volumen fue {top['name']}, con {top['current']} menciones."
+    else: executive = "No fue posible identificar conversaciones a partir de los campos disponibles."
+    def brand_info(name, aliases):
+        def matches(rows): return [r for r in rows if any(alias in _fold(_v2_text(r)) for alias in aliases)]
+        now, old = matches(current), matches(previous)
+        topics = Counter(t.strip() for r in now for t in re.split(r"[,|]", str(r.get("Temas") or "")) if t.strip())
+        conversations = Counter(_v2_label(r) for r in now)
+        change = len(now)-len(old)
+        bullets = [f"{len(now)} menciones en la semana actual. {_v2_movement(len(now), len(old), bool(previous_key)).capitalize()}."]
+        bullets.append(f"Conversaciones principales: {', '.join(f'{n} ({c})' for n,c in conversations.most_common(2)) or 'no se identificó una conversación específica' }.")
+        bullets.append(f"Temas más frecuentes: {', '.join(n for n,_ in topics.most_common(3)) or 'sin tema dominante identificado'}.")
+        return {"name": name, "mentions": len(now), "previous": len(old), "change": change, "sentiment": Counter(str(r.get("Sentimiento") or "") for r in now).most_common(3), "bullets": bullets, "evidence": [str(r.get("Título") or r.get("Texto") or "")[:220] for r in now[:5]]}
+    brand_data = [brand_info("Rexona", ["rexona"]), brand_info("Pond’s", ["pond", "pond's", "pond’s"]), brand_info("Dove", ["dove"])]
+    candidates = {"Nivea":"directo", "Neutrogena":"directo", "Garnier":"directo", "L’Oréal":"directo", "L'Oreal":"directo", "CeraVe":"directo", "Eucerin":"directo", "Vaseline":"directo", "Old Spice":"directo", "Axe":"directo", "Secret":"directo", "Adidas":"adyacente", "Nike":"adyacente", "Puma":"adyacente"}
+    competitor_counts = Counter()
+    for r in current:
+        raw = _v2_text(r)
+        for candidate in candidates:
+            if re.search(rf"(?i)(?<![\w]){re.escape(candidate)}(?![\w])", raw): competitor_counts[candidate] += 1
+    direct = [f"{n} aparece en {c} registros como posible competidor directo." for n,c in competitor_counts.most_common() if candidates[n] == "directo"]
+    adjacent = [f"{n} aparece en {c} registros como actor adyacente, no necesariamente competidor de cuidado personal." for n,c in competitor_counts.most_common() if candidates[n] == "adyacente"]
+    competition_bullets = direct[:5] or ["No se identificaron competidores directos de belleza o cuidado personal en este periodo."]
+    competition_bullets += adjacent[:3]
+    culture_bullets = [f"{x['name']}: {x['current']} menciones, {x['movement']}." for x in named_rows[:6]] or ["No se encontraron conversaciones analizables en los campos disponibles."]
+    return {"week_start": min(d for _,d in dated if d.isocalendar()[:2] == current_key).isoformat(), "title":"One Page semanal", "source_file":filename, "comparison":comparison, "executive_takeaway":executive, "metrics":{"current_mentions":len(current), "previous_mentions":len(previous), "delta_mentions":len(current)-len(previous), "top_conversation":top["name"] if top else "Sin conversación identificable", "platforms":Counter(str(r.get("Fuente") or "") for r in current if r.get("Fuente")).most_common(5)}, "trend_table":conversation_rows[:10], "sections":[{"id":"culture","title":"Qué fue tendencia esta semana","prompt":"La conversación que movió el periodo","insight":executive,"implication":"Este capítulo establece qué conversación tuvo escala y cómo cambió frente a la semana anterior.","bullets":culture_bullets,"evidence":[f"{x['name']} · actual {x['current']} · anterior {x['previous']} · {x['movement']}" for x in conversation_rows[:10]]},{"id":"brands","title":"Cómo impacta a nuestras marcas","prompt":"Lectura separada para Rexona, Pond’s y Dove","insight":"La misma conversación no tiene el mismo significado para todas las marcas. La lectura se separa por presencia, temas y movimiento.","implication":"La marca debe entrar solo donde exista una relación observable con la conversación y un territorio legítimo.","bullets":[f"{b['name']}: {bullet}" for b in brand_data for bullet in b['bullets']],"brand_data":brand_data,"evidence":[]},{"id":"pending","title":"","prompt":"","insight":"","implication":"","bullets":[],"evidence":[]},{"id":"competition","title":"Qué hizo la categoría","prompt":"Competidores directos y actores adyacentes","insight":"La evidencia separa competidores de categoría de actores que solo aparecen en el contexto cultural de la semana.","implication":"El aprendizaje competitivo debe basarse en presencia de marca y relación con la categoría, no solo en aparecer en el mismo texto.","bullets":competition_bullets,"evidence":[]}],"raw_excerpt":_readable_source(text)[:6000]}
+
 def classify_week(text: str, filename: str, week_start: str | None = None) -> dict:
     if text.startswith("__XLSX_JSON__"):
-        result = _weekly_analysis(text, filename)
+        result = _weekly_analysis_v2(text, filename)
         if result:
             if week_start: result["week_start"] = week_start
             return result
