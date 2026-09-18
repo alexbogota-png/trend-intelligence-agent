@@ -10,9 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from core.extractors import extract
 from core.normalizer import normalize
-from core.scoring import evaluate
-from core.llm import interpret, summarize_weekly
-from core.weekly import classify_week
+from core.agent_graph import run_trend_agent, run_weekly_agent
 
 ROOT = Path(__file__).parent
 app = FastAPI(title="Trend Intelligence Agent", version="0.1.0")
@@ -71,15 +69,7 @@ async def weekly_draft(file: UploadFile = File(...), week_start: str = Form(defa
     if len(data) > MAX_FILE_SIZE: raise HTTPException(413, "El archivo supera el máximo permitido de 25 MB.")
     try: raw = extract(data, file.filename or "raw-data")
     except Exception as e: raise HTTPException(400, str(e))
-    page = classify_week(raw, file.filename or "raw-data", week_start or None)
-    summaries, error = summarize_weekly(page)
-    if summaries:
-        for section in page["sections"]:
-            if section["id"] in summaries: section["insight"] = summaries[section["id"]]
-        page["llm_used"] = True
-    else: page["llm_used"] = False
-    if error: page["llm_error"] = error
-    return page
+    return run_weekly_agent(raw, file.filename or "raw-data", week_start or None)
 
 @app.put("/api/weekly")
 def weekly_save(page: WeeklyPage, authorization: str | None = Header(default=None)):
@@ -105,17 +95,7 @@ async def analyze(file: UploadFile = File(...), brand_id: str = Form(...), autho
     if len(data) > MAX_FILE_SIZE: raise HTTPException(413, "El archivo supera el máximo permitido de 25 MB.")
     try: trend = normalize(extract(data, file.filename or "archivo"), file.filename or "archivo", BRANDS)
     except Exception as e: raise HTTPException(400, str(e))
-    analyses = []
-    for brand in selected:
-        result = evaluate(trend, brand, RULES); result.update({"trend": trend, "brand": brand["name"], "source_file": file.filename, "llm_used": False})
-        interpretation, error = interpret(result)
-        if interpretation: result.update({"llm_interpretation": interpretation, "llm_used": True})
-        if error: result["llm_error"] = error
-        average = (result["brand_fit"] + result["actionability"]) / 2
-        result["recommendation"] = "HIGH" if average >= 75 else "MEDIUM" if average >= 55 else "LOW"
-        analyses.append(result)
-    analyses.sort(key=lambda x: (x["brand_fit"] + x["actionability"]) / 2, reverse=True)
-    response = analyses[0] if len(analyses) == 1 else {"trend": trend, "source_file": file.filename, "comparison": [{k: a[k] for k in ["brand", "brand_fit", "actionability", "recommendation"]} for a in analyses], "best_brand": analyses[0]["brand"], "best_analysis": analyses[0]}
+    response = run_trend_agent(trend, selected, RULES, file.filename or "archivo")
     # El sistema de archivos de Vercel no es un almacenamiento persistente.
     # El resultado del análisis no debe fallar si no se puede guardar el historial local.
     try:
