@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from core.extractors import extract
 from core.normalizer import normalize
 from core.agent_graph import run_trend_agent, run_weekly_agent
+from core import bigquery_repository as bq
 
 ROOT = Path(__file__).parent
 app = FastAPI(title="Trend Intelligence Agent", version="0.1.0")
@@ -30,6 +31,11 @@ def brands(): return [{"id": b["id"], "name": b["name"]} for b in BRANDS]
 @app.get("/api/config")
 def public_config(): return {"supabase_url": os.getenv("SUPABASE_URL", ""), "supabase_anon_key": os.getenv("SUPABASE_ANON_KEY", "")}
 
+@app.get("/api/storage/status")
+def storage_status(authorization: str | None = Header(default=None)):
+    require_user(authorization)
+    return bq.connection_status()
+
 def require_user(authorization: str | None):
     if not authorization or not authorization.lower().startswith("bearer "): raise HTTPException(401, "Debes iniciar sesión.")
     url, key = os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY")
@@ -42,6 +48,9 @@ def require_user(authorization: str | None):
 @app.get("/api/history")
 def history(authorization: str | None = Header(default=None)):
     user = require_user(authorization)
+    if bq.configured():
+        try: return bq.list_history(user.get("id"))
+        except Exception as exc: raise HTTPException(503, f"BigQuery no está disponible: {str(exc)[:240]}")
     if not HISTORY_FILE.exists(): return []
     return [x for x in json.loads(HISTORY_FILE.read_text(encoding="utf-8")) if x.get("user_id") == user.get("id")][-50:][::-1]
 
@@ -60,6 +69,9 @@ def _weekly_pages(user_id: str) -> list[dict]:
 @app.get("/api/weekly")
 def weekly_list(authorization: str | None = Header(default=None)):
     user = require_user(authorization)
+    if bq.configured():
+        try: return bq.list_weekly_pages(user.get("id"))
+        except Exception as exc: raise HTTPException(503, f"BigQuery no está disponible: {str(exc)[:240]}")
     return sorted(_weekly_pages(user.get("id")), key=lambda x: x.get("week_start", ""), reverse=True)
 
 @app.post("/api/weekly/draft")
@@ -74,6 +86,9 @@ async def weekly_draft(file: UploadFile = File(...), week_start: str = Form(defa
 @app.put("/api/weekly")
 def weekly_save(page: WeeklyPage, authorization: str | None = Header(default=None)):
     user = require_user(authorization)
+    if bq.configured():
+        try: return bq.save_weekly_page(page.model_dump(), user.get("id"))
+        except Exception as exc: raise HTTPException(503, f"No se pudo guardar en BigQuery: {str(exc)[:240]}")
     pages = []
     if WEEKLY_FILE.exists():
         try: pages = json.loads(WEEKLY_FILE.read_text(encoding="utf-8"))
@@ -96,6 +111,16 @@ async def analyze(file: UploadFile = File(...), brand_id: str = Form(...), autho
     try: trend = normalize(extract(data, file.filename or "archivo"), file.filename or "archivo", BRANDS)
     except Exception as e: raise HTTPException(400, str(e))
     response = run_trend_agent(trend, selected, RULES, file.filename or "archivo")
+    if bq.configured():
+        try:
+            bq.save_history(
+                user_id=user.get("id"),
+                source_file=file.filename or "archivo",
+                trend_name=trend["name"],
+                best_brand=response.get("brand", response.get("best_brand")),
+                result=response,
+            )
+        except Exception as exc: raise HTTPException(503, f"No se pudo guardar el historial en BigQuery: {str(exc)[:240]}")
     # El sistema de archivos de Vercel no es un almacenamiento persistente.
     # El resultado del análisis no debe fallar si no se puede guardar el historial local.
     try:
