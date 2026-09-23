@@ -2,7 +2,7 @@ import re
 import json
 import unicodedata
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from datetime import date
 
 SECTIONS = [
@@ -42,6 +42,9 @@ def _readable_source(text: str) -> str:
 
 def _date_value(value):
     raw = str(value or "").strip()
+    if raw.isdigit():
+        try: return datetime.fromtimestamp(int(raw), tz=timezone.utc).date()
+        except (ValueError, OverflowError, OSError): pass
     for fmt in ("%d.%m.%Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
         try: return datetime.strptime(raw[:10], fmt).date()
         except ValueError: pass
@@ -60,6 +63,27 @@ def _xlsx_records(text: str) -> list[dict]:
                 if record: records.append(record)
         return records
     except (ValueError, TypeError): return []
+
+def mentions_to_source(records: list[dict]) -> str:
+    """Convert normalized BigQuery mentions into the existing weekly-agent input."""
+    headers = ["ID", "Fecha", "Título", "Texto", "Temas", "Fuente", "Marcas en la imagen", "Vistas", "Likes", "Comentarios", "Shares", "URL"]
+    rows = [headers]
+    for record in records:
+        rows.append([
+            record.get("mention_id", ""),
+            record.get("published_at", ""),
+            record.get("title", ""),
+            record.get("title", ""),
+            ", ".join(str(x) for x in (record.get("hashtags") or [])) if isinstance(record.get("hashtags"), list) else record.get("hashtags", ""),
+            "TikTok",
+            "",
+            record.get("views", 0),
+            record.get("likes", 0),
+            record.get("comments", 0),
+            record.get("shares", 0),
+            record.get("url", ""),
+        ])
+    return "__XLSX_JSON__" + json.dumps([{"sheet": "mentions", "rows": rows}], ensure_ascii=False, default=str)
 
 def _conversation_label(raw: str) -> str:
     lines = str(raw or "").replace("\\n", " ").splitlines()
