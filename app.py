@@ -88,6 +88,9 @@ def monid_run(request: MonidRunRequest, authorization: str | None = Header(defau
         if bq.configured(): bq.save_monid_started(user_id=user.get("id"), run=result)
         return result
     except MonidError as exc: raise HTTPException(502, str(exc))
+    except Exception as exc:
+        logger.exception("BigQuery preparation error before Monid run persistence")
+        raise HTTPException(503, f"Monid respondió, pero no se pudo preparar BigQuery: {str(exc)[:300]}")
 
 @app.get("/api/monid/run/{run_id}")
 def monid_run_status(run_id: str, authorization: str | None = Header(default=None)):
