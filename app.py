@@ -12,6 +12,7 @@ from core.extractors import extract
 from core.normalizer import normalize
 from core.agent_graph import run_trend_agent, run_weekly_agent
 from core import bigquery_repository as bq
+from core.monid import MonidError, get_run, start_run
 
 ROOT = Path(__file__).parent
 app = FastAPI(title="Trend Intelligence Agent", version="0.1.0")
@@ -60,6 +61,36 @@ class WeeklyPage(BaseModel):
     source_file: str = ""
     sections: list[dict]
     raw_excerpt: str = ""
+
+class MonidRunRequest(BaseModel):
+    keywords: list[str]
+    market: str = "CO"
+    sort_type: str = "DATE_POSTED"
+    max_items: int = 50
+
+@app.post("/api/monid/run")
+def monid_run(request: MonidRunRequest, authorization: str | None = Header(default=None)):
+    require_user(authorization)
+    keywords = [item.strip() for item in request.keywords if item and item.strip()]
+    if not keywords: raise HTTPException(400, "Debes enviar al menos una keyword.")
+    if len(keywords) > 20: raise HTTPException(400, "Puedes enviar máximo 20 keywords por extracción.")
+    if request.max_items < 1 or request.max_items > 500: raise HTTPException(400, "max_items debe estar entre 1 y 500.")
+    try:
+        return start_run(keywords=keywords, market=request.market.upper(), sort_type=request.sort_type, max_items=request.max_items)
+    except MonidError as exc: raise HTTPException(502, str(exc))
+
+@app.get("/api/monid/run/{run_id}")
+def monid_run_status(run_id: str, authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
+    try:
+        result = get_run(run_id)
+        status = str(result.get("status", "")).upper()
+        ingested = None
+        if status == "COMPLETED" and bq.configured():
+            ingested = bq.save_monid_result(user_id=user.get("id"), run=result)
+        return {"run": result, "ingested": ingested}
+    except MonidError as exc: raise HTTPException(502, str(exc))
+    except Exception as exc: raise HTTPException(503, f"No se pudo guardar el resultado en BigQuery: {str(exc)[:240]}")
 
 def _weekly_pages(user_id: str) -> list[dict]:
     if not WEEKLY_FILE.exists(): return []
