@@ -3,7 +3,7 @@ import logging
 import os
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, timedelta
 from pathlib import Path
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, Header
 from pydantic import BaseModel
@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from core.extractors import extract
 from core.normalizer import normalize
 from core.agent_graph import run_trend_agent, run_weekly_agent
+from core.weekly import mentions_to_source
 from core import bigquery_repository as bq
 from core.monid import MonidError, get_run, start_run
 
@@ -70,15 +71,22 @@ class MonidRunRequest(BaseModel):
     sort_type: str = "DATE_POSTED"
     max_items: int = 50
 
+class WeeklyBQRequest(BaseModel):
+    market: str = "CO"
+    week_start: str
+    week_end: str = ""
+
 @app.post("/api/monid/run")
 def monid_run(request: MonidRunRequest, authorization: str | None = Header(default=None)):
-    require_user(authorization)
+    user = require_user(authorization)
     keywords = [item.strip() for item in request.keywords if item and item.strip()]
     if not keywords: raise HTTPException(400, "Debes enviar al menos una keyword.")
     if len(keywords) > 20: raise HTTPException(400, "Puedes enviar máximo 20 keywords por extracción.")
     if request.max_items < 1 or request.max_items > 500: raise HTTPException(400, "max_items debe estar entre 1 y 500.")
     try:
-        return start_run(keywords=keywords, market=request.market.upper(), sort_type=request.sort_type, max_items=request.max_items)
+        result = start_run(keywords=keywords, market=request.market.upper(), sort_type=request.sort_type, max_items=request.max_items)
+        if bq.configured(): bq.save_monid_started(user_id=user.get("id"), run=result)
+        return result
     except MonidError as exc: raise HTTPException(502, str(exc))
 
 @app.get("/api/monid/run/{run_id}")
@@ -97,6 +105,39 @@ def monid_run_status(run_id: str, authorization: str | None = Header(default=Non
     except Exception as exc:
         logger.exception("BigQuery ingestion error for Monid run %s", run_id)
         raise HTTPException(503, f"No se pudo guardar el resultado en BigQuery: {str(exc)[:240]}")
+
+@app.post("/api/weekly/analyze-from-bigquery")
+def weekly_analyze_from_bigquery(request: WeeklyBQRequest, authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
+    try:
+        current_start = date.fromisoformat(request.week_start)
+        current_end = date.fromisoformat(request.week_end) if request.week_end else current_start + timedelta(days=6)
+    except ValueError: raise HTTPException(400, "week_start y week_end deben tener formato YYYY-MM-DD.")
+    previous_end = current_start - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=6)
+    if not bq.configured(): raise HTTPException(503, "BigQuery no está configurado en el servidor.")
+    try:
+        cached = bq.get_weekly_analysis(user_id=user.get("id"), market=request.market.upper(), week_start=current_start.isoformat(), week_end=current_end.isoformat())
+        if cached:
+            return {**cached, "from_cache": True}
+        records = bq.list_mentions(
+            market=request.market.upper(),
+            week_start=current_start.isoformat(),
+            week_end=current_end.isoformat(),
+            previous_week_start=previous_start.isoformat(),
+            previous_week_end=previous_end.isoformat(),
+        )
+        if not records: raise HTTPException(404, "No hay menciones guardadas para ese periodo y mercado.")
+        page = run_weekly_agent(mentions_to_source(records), f"BigQuery · {request.market.upper()}", current_start.isoformat())
+        page["market"] = request.market.upper()
+        page["period"] = {"week_start": current_start.isoformat(), "week_end": current_end.isoformat(), "previous_week_start": previous_start.isoformat(), "previous_week_end": previous_end.isoformat()}
+        page["data_source"] = "BigQuery"
+        bq.save_weekly_analysis(user_id=user.get("id"), market=request.market.upper(), week_start=current_start.isoformat(), week_end=current_end.isoformat(), previous_week_start=previous_start.isoformat(), previous_week_end=previous_end.isoformat(), analysis=page)
+        return {**page, "from_cache": False}
+    except HTTPException: raise
+    except Exception as exc:
+        logger.exception("BigQuery weekly analysis error")
+        raise HTTPException(503, f"No se pudo analizar desde BigQuery: {str(exc)[:240]}")
 
 def _weekly_pages(user_id: str) -> list[dict]:
     if not WEEKLY_FILE.exists(): return []
