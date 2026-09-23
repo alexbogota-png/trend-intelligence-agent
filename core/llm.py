@@ -69,3 +69,37 @@ def summarize_weekly(page: dict) -> tuple[dict | None, str | None]:
         parsed = json.loads(output)
         return {str(x.get("id")): str(x.get("insight", "")) for x in parsed.get("sections", []) if x.get("id")}, None
     except Exception as e: return None, str(e)
+
+
+def ask_weekly_chat(question: str, page: dict, evidence: list[dict]) -> tuple[str | None, str | None]:
+    """Answer a question using only the selected week's One Page and evidence."""
+    if not os.getenv("OPENAI_API_KEY"):
+        return None, "OPENAI_API_KEY no está configurada en el servidor."
+    try:
+        from openai import OpenAI
+
+        compact_evidence = [{
+            "fecha": str(row.get("published_at") or ""),
+            "titulo": str(row.get("title") or ""),
+            "keyword": str(row.get("keyword") or ""),
+            "autor": str(row.get("author") or ""),
+            "vistas": row.get("views", 0),
+            "likes": row.get("likes", 0),
+            "comentarios": row.get("comments", 0),
+            "url": str(row.get("url") or ""),
+        } for row in evidence[:60]]
+        prompt = (
+            "Actúa como el cerebro analítico de Trend Intelligence Agent. "
+            "Responde en español usando únicamente el One Page y la evidencia entregada. "
+            "Distingue hechos observados de inferencias. No inventes cifras, conversaciones, marcas ni fuentes. "
+            "Si la evidencia no alcanza, dilo claramente. Responde con una conclusión breve y bullets accionables. "
+            "Pregunta: " + question + "\n\nOne Page: " + json.dumps(page, ensure_ascii=False) +
+            "\n\nEvidencia: " + json.dumps(compact_evidence, ensure_ascii=False, default=str)
+        )
+        output = OpenAI().responses.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            input=prompt,
+        ).output_text
+        return output, None
+    except Exception as e:
+        return None, str(e)
