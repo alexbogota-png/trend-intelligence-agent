@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -16,6 +17,7 @@ from core.monid import MonidError, get_run, start_run
 
 ROOT = Path(__file__).parent
 app = FastAPI(title="Trend Intelligence Agent", version="0.1.0")
+logger = logging.getLogger("trend_agent")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 RULES = json.loads((ROOT / "config/rules.json").read_text(encoding="utf-8"))
 BRANDS = json.loads((ROOT / "config/brands.json").read_text(encoding="utf-8"))
@@ -89,8 +91,12 @@ def monid_run_status(run_id: str, authorization: str | None = Header(default=Non
         if status == "COMPLETED" and bq.configured():
             ingested = bq.save_monid_result(user_id=user.get("id"), run=result)
         return {"run": result, "ingested": ingested}
-    except MonidError as exc: raise HTTPException(502, str(exc))
-    except Exception as exc: raise HTTPException(503, f"No se pudo guardar el resultado en BigQuery: {str(exc)[:240]}")
+    except MonidError as exc:
+        logger.error("Monid status error for run %s: %s", run_id, exc)
+        raise HTTPException(502, str(exc))
+    except Exception as exc:
+        logger.exception("BigQuery ingestion error for Monid run %s", run_id)
+        raise HTTPException(503, f"No se pudo guardar el resultado en BigQuery: {str(exc)[:240]}")
 
 def _weekly_pages(user_id: str) -> list[dict]:
     if not WEEKLY_FILE.exists(): return []
