@@ -15,7 +15,7 @@ def _structured_interpret(result: dict) -> str | None:
             confidence: str
 
         model = ChatOpenAI(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
             temperature=0,
         ).with_structured_output(Interpretation)
         prompt = (
@@ -36,7 +36,11 @@ def interpret(result: dict) -> tuple[str | None, str | None]:
         if structured: return structured, None
         from openai import OpenAI
         prompt = f"Interpreta estos resultados en español sin cambiar los scores ni inventar evidencia. Devuelve una recomendación breve con implicaciones y riesgos. Datos: {json.dumps(result, ensure_ascii=False)}"
-        return OpenAI().responses.create(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"), input=prompt).output_text, None
+        response = OpenAI().chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content or "", None
     except Exception as e: return None, str(e)
 
 def summarize_weekly(page: dict) -> tuple[dict | None, str | None]:
@@ -50,7 +54,7 @@ def summarize_weekly(page: dict) -> tuple[dict | None, str | None]:
                 sections: list[dict]
 
             model = ChatOpenAI(
-                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
                 temperature=0,
             ).with_structured_output(WeeklySummary)
             prompt = (
@@ -65,13 +69,17 @@ def summarize_weekly(page: dict) -> tuple[dict | None, str | None]:
             pass
         from openai import OpenAI
         prompt = f"""Resume este one page semanal en español. Usa únicamente la evidencia entregada; no inventes hechos, cifras, marcas ni aprendizajes. Devuelve JSON válido con una clave sections, cuyo valor sea una lista de objetos con id e insight. Mantén la sección pending como pendiente. Escribe insights ejecutivos, claros y breves. Datos: {json.dumps(page, ensure_ascii=False)}"""
-        output = OpenAI().responses.create(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"), input=prompt).output_text
+        response = OpenAI().chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        output = response.choices[0].message.content or ""
         parsed = json.loads(output)
         return {str(x.get("id")): str(x.get("insight", "")) for x in parsed.get("sections", []) if x.get("id")}, None
     except Exception as e: return None, str(e)
 
 
-def ask_weekly_chat(question: str, page: dict, evidence: list[dict]) -> tuple[str | None, str | None]:
+def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: list[dict] | None = None) -> tuple[str | None, str | None]:
     """Answer a question using only the selected week's One Page and evidence."""
     if not os.getenv("OPENAI_API_KEY"):
         return None, "OPENAI_API_KEY no está configurada en el servidor."
@@ -88,18 +96,20 @@ def ask_weekly_chat(question: str, page: dict, evidence: list[dict]) -> tuple[st
             "comentarios": row.get("comments", 0),
             "url": str(row.get("url") or ""),
         } for row in evidence[:60]]
+        conversation = [{"role": str(item.get("role", "user")), "content": str(item.get("content", ""))} for item in (history or [])[-10:]]
         prompt = (
             "Actúa como el cerebro analítico de Trend Intelligence Agent. "
-            "Responde en español usando únicamente el One Page y la evidencia entregada. "
+            "Mantén el contexto de la conversación y responde en español usando únicamente el One Page y la evidencia entregada. "
             "Distingue hechos observados de inferencias. No inventes cifras, conversaciones, marcas ni fuentes. "
             "Si la evidencia no alcanza, dilo claramente. Responde con una conclusión breve y bullets accionables. "
-            "Pregunta: " + question + "\n\nOne Page: " + json.dumps(page, ensure_ascii=False) +
+            "Conversación previa: " + json.dumps(conversation, ensure_ascii=False) +
+            "\nPregunta actual: " + question + "\n\nOne Page: " + json.dumps(page, ensure_ascii=False) +
             "\n\nEvidencia: " + json.dumps(compact_evidence, ensure_ascii=False, default=str)
         )
-        output = OpenAI().responses.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-            input=prompt,
-        ).output_text
-        return output, None
+        response = OpenAI().chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content or "", None
     except Exception as e:
         return None, str(e)
