@@ -355,10 +355,10 @@ def list_mentions(*, market: str, week_start: str, week_end: str, previous_week_
 def get_weekly_analysis(*, user_id: str, market: str, week_start: str, week_end: str) -> dict[str, Any] | None:
     ensure_tables()
     key = f"{user_id}:{market}:{week_start}:{week_end}"
-    rows = _run(
+    rows = list(_run(
         f"SELECT analysis FROM {_table('weekly_comparisons')} WHERE analysis_key = @analysis_key ORDER BY generated_at DESC LIMIT 1",
         [("analysis_key", "STRING", key)],
-    )
+    ))
     if not rows:
         return None
     analysis = dict(rows[0]).get("analysis")
