@@ -84,6 +84,48 @@ def ensure_tables() -> None:
         )
         """
     )
+    _run(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_table('raw_monid_runs')} (
+          run_id STRING,
+          user_id STRING,
+          provider STRING,
+          endpoint STRING,
+          status STRING,
+          input_json JSON,
+          output_json JSON,
+          cost_usd NUMERIC,
+          result_count INT64,
+          created_at TIMESTAMP,
+          started_at TIMESTAMP,
+          completed_at TIMESTAMP,
+          ingested_at TIMESTAMP
+        )
+        """
+    )
+    _run(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_table('mentions')} (
+          mention_id STRING,
+          run_id STRING,
+          user_id STRING,
+          market STRING,
+          keyword STRING,
+          published_at TIMESTAMP,
+          title STRING,
+          author STRING,
+          url STRING,
+          views INT64,
+          likes INT64,
+          comments INT64,
+          shares INT64,
+          bookmarks INT64,
+          hashtags JSON,
+          raw_json JSON,
+          loaded_at TIMESTAMP
+        )
+        """
+    )
 
 
 def save_history(*, user_id: str, source_file: str, trend_name: str, best_brand: str | None, result: dict[str, Any]) -> None:
@@ -170,3 +212,72 @@ def connection_status() -> dict[str, Any]:
     except Exception as exc:
         status["error"] = str(exc)[:300]
     return status
+
+
+def save_monid_result(*, user_id: str, run: dict[str, Any]) -> dict[str, Any]:
+    """Persist one completed Monid run and its normalized TikTok records."""
+    ensure_tables()
+    run_id = str(run.get("runId") or run.get("run_id") or "")
+    output = run.get("output") if isinstance(run.get("output"), list) else []
+    if not run_id:
+        raise RuntimeError("La respuesta de Monid no contiene runId.")
+
+    existing = list(_run(
+        f"SELECT run_id FROM {_table('raw_monid_runs')} WHERE run_id = @run_id LIMIT 1",
+        [("run_id", "STRING", run_id)],
+    ))
+    if existing:
+        return {"run_id": run_id, "status": run.get("status"), "already_ingested": True, "result_count": len(output)}
+
+    client = _client()
+    raw_table = f"{os.environ['GCP_PROJECT_ID']}.{os.environ['BQ_DATASET']}.raw_monid_runs"
+    raw_errors = client.insert_rows_json(raw_table, [{
+        "run_id": run_id,
+        "user_id": user_id,
+        "provider": run.get("provider"),
+        "endpoint": run.get("endpoint"),
+        "status": run.get("status"),
+        "input_json": run.get("input", {}),
+        "output_json": run.get("output", []),
+        "cost_usd": (run.get("cost") or {}).get("value"),
+        "result_count": run.get("resultCount") or len(output),
+        "created_at": run.get("createdAt"),
+        "started_at": run.get("startedAt"),
+        "completed_at": run.get("completedAt"),
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
+    }])
+    if raw_errors:
+        raise RuntimeError(f"No se pudo guardar el run de Monid: {raw_errors}")
+
+    mention_rows = []
+    body = ((run.get("input") or {}).get("body") or {})
+    market = body.get("location", "")
+    for item in output:
+        channel = item.get("channel") if isinstance(item.get("channel"), dict) else {}
+        mention_rows.append({
+            "mention_id": str(item.get("id") or item.get("postId") or ""),
+            "run_id": run_id,
+            "user_id": user_id,
+            "market": market,
+            "keyword": item.get("keyword") or ", ".join(body.get("keywords") or []),
+            "published_at": item.get("uploadedAt") or item.get("uploadedAtFormatted"),
+            "title": item.get("title") or item.get("text") or "",
+            "author": channel.get("username") or channel.get("name") or "",
+            "url": item.get("postPage") or item.get("url") or "",
+            "views": item.get("views") or 0,
+            "likes": item.get("likes") or 0,
+            "comments": item.get("comments") or 0,
+            "shares": item.get("shares") or 0,
+            "bookmarks": item.get("bookmarks") or 0,
+            "hashtags": item.get("hashtags") or [],
+            "raw_json": item,
+            "loaded_at": datetime.now(timezone.utc).isoformat(),
+        })
+    if mention_rows:
+        mention_errors = client.insert_rows_json(
+            f"{os.environ['GCP_PROJECT_ID']}.{os.environ['BQ_DATASET']}.mentions",
+            mention_rows,
+        )
+        if mention_errors:
+            raise RuntimeError(f"No se pudieron guardar las menciones: {mention_errors}")
+    return {"run_id": run_id, "status": run.get("status"), "already_ingested": False, "result_count": len(mention_rows)}
