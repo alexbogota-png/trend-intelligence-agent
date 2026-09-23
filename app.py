@@ -13,6 +13,7 @@ from core.extractors import extract
 from core.normalizer import normalize
 from core.agent_graph import run_trend_agent, run_weekly_agent
 from core.weekly import mentions_to_source
+from core.llm import ask_weekly_chat
 from core import bigquery_repository as bq
 from core.monid import MonidError, get_run, start_run
 
@@ -76,6 +77,19 @@ class WeeklyBQRequest(BaseModel):
     week_start: str
     week_end: str = ""
 
+class WeeklyChatRequest(BaseModel):
+    market: str = "CO"
+    week_start: str
+    question: str
+
+
+def _mention_date(value: object) -> date | None:
+    raw = str(value or "")[:10]
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
 @app.post("/api/monid/run")
 def monid_run(request: MonidRunRequest, authorization: str | None = Header(default=None)):
     user = require_user(authorization)
@@ -130,7 +144,13 @@ def weekly_analyze_from_bigquery(request: WeeklyBQRequest, authorization: str | 
             previous_week_start=previous_start.isoformat(),
             previous_week_end=previous_end.isoformat(),
         )
-        if not records: raise HTTPException(404, "No hay menciones guardadas para ese periodo y mercado.")
+        current_records = [
+            record for record in records
+            if (published := _mention_date(record.get("published_at")))
+            and current_start <= published <= current_end
+        ]
+        if not current_records:
+            raise HTTPException(404, f"No hay menciones en la semana seleccionada ({current_start.isoformat()} a {current_end.isoformat()}).")
         page = run_weekly_agent(mentions_to_source(records), f"BigQuery · {request.market.upper()}", current_start.isoformat())
         page["market"] = request.market.upper()
         page["period"] = {"week_start": current_start.isoformat(), "week_end": current_end.isoformat(), "previous_week_start": previous_start.isoformat(), "previous_week_end": previous_end.isoformat()}
@@ -141,6 +161,65 @@ def weekly_analyze_from_bigquery(request: WeeklyBQRequest, authorization: str | 
     except Exception as exc:
         logger.exception("BigQuery weekly analysis error")
         raise HTTPException(503, f"No se pudo analizar desde BigQuery: {str(exc)[:240]}")
+
+@app.post("/api/weekly/chat")
+def weekly_chat(request: WeeklyChatRequest, authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
+    question = request.question.strip()
+    if not question:
+        raise HTTPException(400, "Escribe una pregunta.")
+    try:
+        current_start = date.fromisoformat(request.week_start)
+    except ValueError:
+        raise HTTPException(400, "week_start debe tener formato YYYY-MM-DD.")
+    current_end = current_start + timedelta(days=6)
+    previous_end = current_start - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=6)
+    if not bq.configured():
+        raise HTTPException(503, "BigQuery no está configurado en el servidor.")
+    try:
+        market = request.market.upper()
+        page = bq.get_weekly_analysis(
+            user_id=user.get("id"), market=market,
+            week_start=current_start.isoformat(), week_end=current_end.isoformat(),
+        )
+        records = bq.list_mentions(
+            market=market,
+            week_start=current_start.isoformat(), week_end=current_end.isoformat(),
+            previous_week_start=previous_start.isoformat(), previous_week_end=previous_end.isoformat(),
+        )
+        if not page:
+            current_records = [
+                record for record in records
+                if (published := _mention_date(record.get("published_at")))
+                and current_start <= published <= current_end
+            ]
+            if not current_records:
+                raise HTTPException(404, "No hay evidencia para la semana seleccionada.")
+            page = run_weekly_agent(mentions_to_source(records), f"BigQuery · {market}", current_start.isoformat())
+            page["market"] = market
+            page["period"] = {
+                "week_start": current_start.isoformat(),
+                "week_end": current_end.isoformat(),
+                "previous_week_start": previous_start.isoformat(),
+                "previous_week_end": previous_end.isoformat(),
+            }
+            page["data_source"] = "BigQuery"
+            bq.save_weekly_analysis(
+                user_id=user.get("id"), market=market,
+                week_start=current_start.isoformat(), week_end=current_end.isoformat(),
+                previous_week_start=previous_start.isoformat(), previous_week_end=previous_end.isoformat(),
+                analysis=page,
+            )
+        answer, error = ask_weekly_chat(question, page, records)
+        if error:
+            raise HTTPException(503, f"No se pudo consultar el cerebro analítico: {error[:240]}")
+        return {"answer": answer, "week_start": current_start.isoformat(), "market": market, "data_source": "BigQuery"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Weekly chat error")
+        raise HTTPException(503, f"No se pudo responder la pregunta: {str(exc)[:240]}")
 
 def _weekly_pages(user_id: str) -> list[dict]:
     if not WEEKLY_FILE.exists(): return []
