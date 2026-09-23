@@ -70,6 +70,25 @@ def _run(sql: str, params: list[tuple[str, str, Any]] | None = None):
     return client.query(sql, location=location, job_config=job_config).result()
 
 
+def _append_rows(table_name: str, rows: list[dict[str, Any]]) -> None:
+    """Append rows with a BigQuery load job instead of streaming inserts.
+
+    Load jobs work with projects that do not have streaming-insert access or
+    billing enabled for the streaming API.
+    """
+    if not rows:
+        return
+    from google.cloud import bigquery
+
+    client = _client()
+    table_id = f"{os.environ['GCP_PROJECT_ID']}.{os.environ['BQ_DATASET']}.{table_name}"
+    job_config = bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
+    job = client.load_table_from_json(rows, table_id, job_config=job_config)
+    job.result()
+    if job.errors:
+        raise RuntimeError(f"No se pudieron cargar filas en {table_name}: {job.errors}")
+
+
 def ensure_tables() -> None:
     _run(
         f"""
@@ -166,9 +185,7 @@ def save_monid_started(*, user_id: str, run: dict[str, Any]) -> None:
     ))
     if existing:
         return
-    errors = _client().insert_rows_json(
-        f"{os.environ['GCP_PROJECT_ID']}.{os.environ['BQ_DATASET']}.raw_monid_runs",
-        [{
+    _append_rows("raw_monid_runs", [{
             "run_id": run_id,
             "user_id": user_id,
             "provider": run.get("provider", "apify"),
@@ -176,27 +193,19 @@ def save_monid_started(*, user_id: str, run: dict[str, Any]) -> None:
             "status": run.get("status", "RUNNING"),
             "input_json": run.get("input", {}),
             "created_at": run.get("createdAt"),
-        }],
-    )
-    if errors:
-        raise RuntimeError(f"No se pudo registrar el run en BigQuery: {errors}")
+        }])
 
 
 def save_history(*, user_id: str, source_file: str, trend_name: str, best_brand: str | None, result: dict[str, Any]) -> None:
     ensure_tables()
-    errors = _client().insert_rows_json(
-        f"{os.environ['GCP_PROJECT_ID']}.{os.environ['BQ_DATASET']}.analysis_history",
-        [{
+    _append_rows("analysis_history", [{
             "created_at": datetime.now(timezone.utc).isoformat(),
             "user_id": user_id,
             "source_file": source_file,
             "trend_name": trend_name,
             "best_brand": best_brand,
             "result": result,
-        }],
-    )
-    if errors:
-        raise RuntimeError(f"No se pudo guardar el historial en BigQuery: {errors}")
+        }])
 
 
 def list_history(user_id: str, limit: int = 50) -> list[dict[str, Any]]:
@@ -225,12 +234,7 @@ def save_weekly_page(page: dict[str, Any], user_id: str) -> dict[str, Any]:
         "sections": page.get("sections", []),
         "raw_excerpt": page.get("raw_excerpt", ""),
     }
-    errors = _client().insert_rows_json(
-        f"{os.environ['GCP_PROJECT_ID']}.{os.environ['BQ_DATASET']}.weekly_pages",
-        [row],
-    )
-    if errors:
-        raise RuntimeError(f"No se pudo guardar el One Page en BigQuery: {errors}")
+    _append_rows("weekly_pages", [row])
     return {**page, "user_id": user_id}
 
 
@@ -283,7 +287,6 @@ def save_monid_result(*, user_id: str, run: dict[str, Any]) -> dict[str, Any]:
     if existing and dict(existing[0]).get("ingested_at"):
         return {"run_id": run_id, "status": run.get("status"), "already_ingested": True, "result_count": len(output)}
 
-    client = _client()
     _run(
         f"""
         UPDATE {_table('raw_monid_runs')}
@@ -336,12 +339,7 @@ def save_monid_result(*, user_id: str, run: dict[str, Any]) -> dict[str, Any]:
             "loaded_at": datetime.now(timezone.utc).isoformat(),
         })
     if mention_rows:
-        mention_errors = client.insert_rows_json(
-            f"{os.environ['GCP_PROJECT_ID']}.{os.environ['BQ_DATASET']}.mentions",
-            mention_rows,
-        )
-        if mention_errors:
-            raise RuntimeError(f"No se pudieron guardar las menciones: {mention_errors}")
+        _append_rows("mentions", mention_rows)
     return {"run_id": run_id, "status": run.get("status"), "already_ingested": False, "result_count": len(mention_rows)}
 
 
