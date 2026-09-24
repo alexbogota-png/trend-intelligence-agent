@@ -172,6 +172,85 @@ def ensure_tables() -> None:
         )
         """
     )
+    _run(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_table('trend_runs')} (
+          run_id STRING,
+          user_id STRING,
+          market STRING,
+          target_date DATE,
+          provider STRING,
+          endpoint STRING,
+          status STRING,
+          cost_usd NUMERIC,
+          result_count INT64,
+          created_at TIMESTAMP,
+          completed_at TIMESTAMP,
+          loaded_at TIMESTAMP
+        )
+        """
+    )
+    _run(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_table('trend_hashtags')} (
+          run_id STRING,
+          user_id STRING,
+          market STRING,
+          snapshot_date DATE,
+          rank_index INT64,
+          hashtag_id STRING,
+          hashtag_name STRING,
+          publish_count INT64,
+          views INT64,
+          industry_ids JSON,
+          popularity_curve JSON,
+          top_creators JSON,
+          raw_json JSON,
+          loaded_at TIMESTAMP
+        )
+        """
+    )
+    _run(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_table('trend_posts')} (
+          run_id STRING,
+          user_id STRING,
+          market STRING,
+          snapshot_date DATE,
+          post_id STRING,
+          published_at TIMESTAMP,
+          title STRING,
+          author STRING,
+          url STRING,
+          views INT64,
+          likes INT64,
+          comments INT64,
+          shares INT64,
+          engagement_rate FLOAT64,
+          hashtags JSON,
+          sound JSON,
+          raw_json JSON,
+          loaded_at TIMESTAMP
+        )
+        """
+    )
+    _run(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_table('trend_sounds')} (
+          run_id STRING,
+          user_id STRING,
+          market STRING,
+          snapshot_date DATE,
+          sound_id STRING,
+          sound_name STRING,
+          sound_author STRING,
+          video_count INT64,
+          views INT64,
+          raw_json JSON,
+          loaded_at TIMESTAMP
+        )
+        """
+    )
 
 
 def save_monid_started(*, user_id: str, run: dict[str, Any]) -> None:
@@ -350,6 +429,183 @@ def list_mentions(*, market: str, week_start: str, week_end: str, previous_week_
         ],
     )
     return [dict(row) for row in rows]
+
+
+def save_trend_started(*, user_id: str, market: str, target_date: str, run: dict[str, Any]) -> None:
+    ensure_tables()
+    _append_rows("trend_runs", [{
+        "run_id": str(run.get("runId") or run.get("run_id") or ""),
+        "user_id": user_id,
+        "market": market,
+        "target_date": target_date,
+        "provider": run.get("provider", ""),
+        "endpoint": run.get("endpoint", ""),
+        "status": run.get("status", "RUNNING"),
+        "cost_usd": (run.get("price") or {}).get("amount", {}).get("value") or 0,
+        "result_count": 0,
+        "created_at": run.get("createdAt"),
+    }])
+
+
+def _nested(item: dict[str, Any], *keys: str) -> Any:
+    current: Any = item
+    for key in keys:
+        current = current.get(key) if isinstance(current, dict) else None
+    return current
+
+
+def _int_value(value: Any) -> int:
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def save_trend_result(*, user_id: str, market: str, target_date: str, run: dict[str, Any]) -> dict[str, Any]:
+    """Persist TikHub trend outputs and normalize the fields used by the radar."""
+    ensure_tables()
+    run_id = str(run.get("runId") or run.get("run_id") or "")
+    output = run.get("output") if isinstance(run.get("output"), dict) else {}
+    endpoint = str(run.get("endpoint") or "")
+    loaded_at = datetime.now(timezone.utc).isoformat()
+    result_count = 0
+    if endpoint.endswith("get_trends_hashtag_list"):
+        items = output.get("items") or []
+        rows = []
+        for item in items:
+            rows.append({
+                "run_id": run_id,
+                "user_id": user_id,
+                "market": market,
+                "snapshot_date": target_date,
+                "rank_index": _int_value(item.get("rankIndex")),
+                "hashtag_id": str(item.get("hashtagID") or ""),
+                "hashtag_name": str(item.get("hashtagName") or ""),
+                "publish_count": _int_value(item.get("publishCnt")),
+                "views": _int_value(item.get("vv")),
+                "industry_ids": item.get("industryIDs") or [],
+                "popularity_curve": item.get("popularityCurve") or [],
+                "top_creators": item.get("topCreators") or [],
+                "raw_json": item,
+                "loaded_at": loaded_at,
+            })
+        _append_rows("trend_hashtags", rows)
+        result_count = len(rows)
+    elif endpoint.endswith("get_top_contents_list"):
+        items = output.get("entityInfos") or []
+        rows = []
+        sound_rows = []
+        for item in items:
+            info = item.get("itemInfo") if isinstance(item.get("itemInfo"), dict) else item
+            metrics = item.get("itemMetrics") if isinstance(item.get("itemMetrics"), dict) else {}
+            author = item.get("itemAuthorInfo") if isinstance(item.get("itemAuthorInfo"), dict) else {}
+            rows.append({
+                "run_id": run_id,
+                "user_id": user_id,
+                "market": market,
+                "snapshot_date": target_date,
+                "post_id": str(info.get("id") or info.get("itemId") or ""),
+                "published_at": _published_timestamp(info),
+                "title": str(info.get("desc") or info.get("title") or ""),
+                "author": str(author.get("uniqueId") or author.get("nickname") or ""),
+                "url": str(info.get("shareUrl") or info.get("url") or ""),
+                "views": _int_value(metrics.get("playCount") or metrics.get("views")),
+                "likes": _int_value(metrics.get("diggCount") or metrics.get("likes")),
+                "comments": _int_value(metrics.get("commentCount") or metrics.get("comments")),
+                "shares": _int_value(metrics.get("shareCount") or metrics.get("shares")),
+                "engagement_rate": float(metrics.get("engagementRate") or 0),
+                "hashtags": item.get("contentTags") or info.get("hashtags") or [],
+                "sound": info.get("music") or item.get("music") or {},
+                "raw_json": item,
+                "loaded_at": loaded_at,
+            })
+            sound = info.get("music") or item.get("music") or {}
+            if isinstance(sound, dict) and (sound.get("id") or sound.get("title") or sound.get("name")):
+                sound_rows.append({
+                    "run_id": run_id,
+                    "user_id": user_id,
+                    "market": market,
+                    "snapshot_date": target_date,
+                    "sound_id": str(sound.get("id") or sound.get("musicId") or ""),
+                    "sound_name": str(sound.get("title") or sound.get("name") or ""),
+                    "sound_author": str(sound.get("authorName") or sound.get("author") or ""),
+                    "video_count": _int_value(sound.get("videoCount")),
+                    "views": _int_value(sound.get("playCount") or sound.get("views")),
+                    "raw_json": sound,
+                    "loaded_at": loaded_at,
+                })
+        _append_rows("trend_posts", rows)
+        _append_rows("trend_sounds", sound_rows)
+        result_count = len(rows)
+    _append_rows("trend_runs", [{
+        "run_id": run_id,
+        "user_id": user_id,
+        "market": market,
+        "target_date": target_date,
+        "provider": run.get("provider", ""),
+        "endpoint": endpoint,
+        "status": run.get("status", "COMPLETED"),
+        "cost_usd": (run.get("cost") or {}).get("value") or 0,
+        "result_count": result_count,
+        "created_at": run.get("createdAt"),
+        "completed_at": run.get("completedAt"),
+        "loaded_at": loaded_at,
+    }])
+    return {"run_id": run_id, "endpoint": endpoint, "result_count": result_count, "status": run.get("status")}
+
+
+def get_trend_radar(*, user_id: str, market: str, target_date: str) -> dict[str, Any]:
+    ensure_tables()
+    hashtag_rows = _run(
+        f"""
+        SELECT rank_index, hashtag_id, hashtag_name, publish_count, views,
+               popularity_curve, top_creators
+        FROM {_table('trend_hashtags')}
+        WHERE user_id = @user_id AND market = @market AND snapshot_date = @target_date
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY hashtag_id ORDER BY loaded_at DESC) = 1
+        ORDER BY rank_index ASC, views DESC
+        LIMIT 100
+        """,
+        [("user_id", "STRING", user_id), ("market", "STRING", market), ("target_date", "DATE", target_date)],
+    )
+    post_rows = _run(
+        f"""
+        SELECT post_id, published_at, title, author, url, views, likes, comments, shares,
+               engagement_rate, hashtags, sound
+        FROM {_table('trend_posts')}
+        WHERE user_id = @user_id AND market = @market AND snapshot_date = @target_date
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY post_id ORDER BY loaded_at DESC) = 1
+        ORDER BY (likes + comments + shares) DESC, views DESC
+        LIMIT 100
+        """,
+        [("user_id", "STRING", user_id), ("market", "STRING", market), ("target_date", "DATE", target_date)],
+    )
+    mention_rows = _run(
+        f"""
+        SELECT m.mention_id AS post_id, m.published_at, m.title, m.author, m.url,
+               m.views, m.likes, m.comments, m.shares, 0.0 AS engagement_rate,
+               m.hashtags, CAST(NULL AS JSON) AS sound
+        FROM {_table('mentions')} AS m
+        JOIN {_table('trend_runs')} AS r ON r.run_id = m.run_id
+        WHERE m.user_id = @user_id AND m.market = @market AND r.target_date = @target_date
+        ORDER BY (m.likes + m.comments + m.shares) DESC, m.views DESC
+        LIMIT 100
+        """,
+        [("user_id", "STRING", user_id), ("market", "STRING", market), ("target_date", "DATE", target_date)],
+    )
+    combined_posts = [dict(row) for row in post_rows] or [dict(row) for row in mention_rows]
+    sound_rows = _run(
+        f"""
+        SELECT sound_id, sound_name, sound_author, video_count, views
+        FROM {_table('trend_sounds')}
+        WHERE user_id = @user_id AND market = @market AND snapshot_date = @target_date
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY sound_id ORDER BY loaded_at DESC) = 1
+        ORDER BY video_count DESC, views DESC
+        LIMIT 50
+        """,
+        [("user_id", "STRING", user_id), ("market", "STRING", market), ("target_date", "DATE", target_date)],
+    )
+    return {"target_date": target_date, "market": market, "hashtags": [dict(row) for row in hashtag_rows], "posts": combined_posts, "sounds": [dict(row) for row in sound_rows]}
 
 
 def get_weekly_analysis(*, user_id: str, market: str, week_start: str, week_end: str) -> dict[str, Any] | None:

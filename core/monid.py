@@ -40,17 +40,25 @@ def _request(method: str, path: str, body: dict | None = None) -> dict:
 
 
 def start_run(*, keywords: list[str], market: str, sort_type: str, max_items: int) -> dict:
+    return start_provider_run(
+        provider="apify",
+        endpoint="/apidojo/tiktok-scraper",
+        input_body={
+            "keywords": keywords,
+            "sortType": sort_type,
+            "location": market,
+            "maxItems": max_items,
+            "includeSearchKeywords": True,
+        },
+    )
+
+
+def start_provider_run(*, provider: str, endpoint: str, input_body: dict) -> dict:
     body = {
-        "provider": "apify",
-        "endpoint": "/apidojo/tiktok-scraper",
+        "provider": provider,
+        "endpoint": endpoint,
         "input": {
-            "body": {
-                "keywords": keywords,
-                "sortType": sort_type,
-                "location": market,
-                "maxItems": max_items,
-                "includeSearchKeywords": True,
-            },
+            "body": input_body,
             "queryParams": {},
             "pathParams": {},
         },
