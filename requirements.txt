@@ -9,3 +9,4 @@ langchain-core==0.3.86
 langchain-openai==0.3.8
 langgraph==1.0.1
 google-cloud-bigquery==3.38.0
+google-crc32c==1.7.1
