@@ -79,7 +79,7 @@ def summarize_weekly(page: dict) -> tuple[dict | None, str | None]:
     except Exception as e: return None, str(e)
 
 
-def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: list[dict] | None = None) -> tuple[str | None, str | None]:
+def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: list[dict] | None = None) -> tuple[dict | None, str | None]:
     """Answer a question using only the selected week's One Page and evidence."""
     if not os.getenv("OPENAI_API_KEY"):
         return None, "OPENAI_API_KEY no está configurada en el servidor."
@@ -101,7 +101,10 @@ def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: li
             "Actúa como el cerebro analítico de Trend Intelligence Agent. "
             "Mantén el contexto de la conversación y responde en español usando únicamente el One Page y la evidencia entregada. "
             "Distingue hechos observados de inferencias. No inventes cifras, conversaciones, marcas ni fuentes. "
-            "Si la evidencia no alcanza, dilo claramente. Responde con una conclusión breve y bullets accionables. "
+            "Si la evidencia no alcanza, dilo claramente. Devuelve exclusivamente un objeto JSON válido con estas claves: "
+            "idea_central (string), que_vemos (array de strings), que_significa (array de strings), "
+            "que_haria (array de strings) y nivel_evidencia (string: Evidencia suficiente, Evidencia limitada o No concluyente). "
+            "No incluyas markdown, métricas ni claves adicionales. "
             "Conversación previa: " + json.dumps(conversation, ensure_ascii=False) +
             "\nPregunta actual: " + question + "\n\nOne Page: " + json.dumps(page, ensure_ascii=False) +
             "\n\nEvidencia: " + json.dumps(compact_evidence, ensure_ascii=False, default=str)
@@ -109,7 +112,17 @@ def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: li
         response = OpenAI().chat.completions.create(
             model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
             messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
         )
-        return response.choices[0].message.content or "", None
+        output = response.choices[0].message.content or "{}"
+        parsed = json.loads(output)
+        answer = {
+            "idea_central": str(parsed.get("idea_central", "")),
+            "que_vemos": [str(item) for item in parsed.get("que_vemos", []) if item],
+            "que_significa": [str(item) for item in parsed.get("que_significa", []) if item],
+            "que_haria": [str(item) for item in parsed.get("que_haria", []) if item],
+            "nivel_evidencia": str(parsed.get("nivel_evidencia", "Evidencia limitada")),
+        }
+        return answer, None
     except Exception as e:
         return None, str(e)
