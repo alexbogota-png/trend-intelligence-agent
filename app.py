@@ -81,6 +81,7 @@ class WeeklyChatRequest(BaseModel):
     market: str = "CO"
     week_start: str
     question: str
+    messages: list[dict] = []
 
 
 def _mention_date(value: object) -> date | None:
@@ -89,6 +90,38 @@ def _mention_date(value: object) -> date | None:
         return date.fromisoformat(raw)
     except ValueError:
         return None
+
+def _to_number(value: object) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+def _chat_visual(records: list[dict]) -> dict:
+    """Build a small evidence graphic from stored records, without LLM-generated numbers."""
+    totals = {
+        "Menciones": len(records),
+        "Vistas": int(sum(_to_number(row.get("views")) for row in records)),
+        "Interacciones": int(sum(
+            _to_number(row.get("likes")) + _to_number(row.get("comments")) + _to_number(row.get("shares"))
+            for row in records
+        )),
+    }
+    topics: dict[str, int] = {}
+    for row in records:
+        raw = str(row.get("keyword") or row.get("title") or "").strip()
+        for item in raw.replace(";", ",").split(","):
+            label = item.strip()
+            if label:
+                topics[label] = topics.get(label, 0) + 1
+    topic_items = sorted(topics.items(), key=lambda pair: (-pair[1], pair[0].lower()))[:5]
+    bars = [{"label": label, "value": count} for label, count in topic_items]
+    return {
+        "title": "Señales observadas",
+        "metrics": [{"label": label, "value": value} for label, value in totals.items()],
+        "bars": bars,
+        "note": "Cifras calculadas directamente sobre la evidencia almacenada en BigQuery.",
+    }
 
 @app.post("/api/monid/run")
 def monid_run(request: MonidRunRequest, authorization: str | None = Header(default=None)):
@@ -188,6 +221,11 @@ def weekly_chat(request: WeeklyChatRequest, authorization: str | None = Header(d
             week_start=current_start.isoformat(), week_end=current_end.isoformat(),
             previous_week_start=previous_start.isoformat(), previous_week_end=previous_end.isoformat(),
         )
+        chat_records = [
+            record for record in records
+            if (published := _mention_date(record.get("published_at")))
+            and current_start <= published <= current_end
+        ] or records
         if not page:
             current_records = [
                 record for record in records
@@ -211,10 +249,16 @@ def weekly_chat(request: WeeklyChatRequest, authorization: str | None = Header(d
                 previous_week_start=previous_start.isoformat(), previous_week_end=previous_end.isoformat(),
                 analysis=page,
             )
-        answer, error = ask_weekly_chat(question, page, records)
+        answer, error = ask_weekly_chat(question, page, chat_records, request.messages)
         if error:
             raise HTTPException(503, f"No se pudo consultar el cerebro analítico: {error[:240]}")
-        return {"answer": answer, "week_start": current_start.isoformat(), "market": market, "data_source": "BigQuery"}
+        return {
+            "answer": answer,
+            "visual": _chat_visual(chat_records),
+            "week_start": current_start.isoformat(),
+            "market": market,
+            "data_source": "BigQuery",
+        }
     except HTTPException:
         raise
     except Exception as exc:
