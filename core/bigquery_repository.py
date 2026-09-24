@@ -564,7 +564,8 @@ def latest_trend_date(*, user_id: str, market: str) -> str | None:
         """,
         [("user_id", "STRING", user_id), ("market", "STRING", market)],
     )
-    value = dict(rows[0]).get("target_date") if rows else None
+    first = next(iter(rows), None)
+    value = dict(first).get("target_date") if first else None
     return str(value) if value else None
 
 
@@ -629,9 +630,10 @@ def get_weekly_analysis(*, user_id: str, market: str, week_start: str, week_end:
         f"SELECT analysis FROM {_table('weekly_comparisons')} WHERE analysis_key = @analysis_key ORDER BY generated_at DESC LIMIT 1",
         [("analysis_key", "STRING", key)],
     ))
-    if not rows:
+    first = next(iter(rows), None)
+    if not first:
         return None
-    analysis = dict(rows[0]).get("analysis")
+    analysis = dict(first).get("analysis")
     if isinstance(analysis, str):
         return json.loads(analysis)
     return analysis
