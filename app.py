@@ -15,7 +15,7 @@ from core.agent_graph import run_trend_agent, run_weekly_agent
 from core.weekly import mentions_to_source
 from core.llm import ask_weekly_chat
 from core import bigquery_repository as bq
-from core.monid import MonidError, get_run, start_run
+from core.monid import MonidError, get_run, start_run, start_provider_run
 
 ROOT = Path(__file__).parent
 app = FastAPI(title="Trend Intelligence Agent", version="0.1.0")
@@ -83,6 +83,15 @@ class WeeklyChatRequest(BaseModel):
     question: str
     messages: list[dict] = []
 
+class TrendRadarRequest(BaseModel):
+    market: str = "CO"
+    target_date: str
+
+class TrendRadarEnrichRequest(BaseModel):
+    market: str = "CO"
+    target_date: str
+    hashtags: list[str]
+
 
 def _mention_date(value: object) -> date | None:
     raw = str(value or "")[:10]
@@ -90,6 +99,90 @@ def _mention_date(value: object) -> date | None:
         return date.fromisoformat(raw)
     except ValueError:
         return None
+
+@app.post("/api/trends/radar/run")
+def trend_radar_run(request: TrendRadarRequest, authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
+    try:
+        date.fromisoformat(request.target_date)
+    except ValueError:
+        raise HTTPException(400, "target_date debe tener formato YYYY-MM-DD.")
+    if not bq.configured():
+        raise HTTPException(503, "BigQuery no está configurado en el servidor.")
+    try:
+        hashtag_run = start_provider_run(
+            provider="tikhub",
+            endpoint="/api/v1/tiktok/ads/get_trends_hashtag_list",
+            input_body={"country_code": request.market.upper(), "time_range": 7, "page": 1, "limit": 100},
+        )
+        top_run = start_provider_run(
+            provider="tikhub",
+            endpoint="/api/v1/tiktok/ads/get_top_contents_list",
+            input_body={"country_code": request.market.upper(), "period_dimension": 3, "period_end_timestamp": int(datetime.fromisoformat(request.target_date + "T23:59:59").replace(tzinfo=timezone.utc).timestamp()), "order_by_metric": 2, "organic_only": True, "page": 1, "limit": 100, "content_label_ids": ""},
+        )
+        for run in (hashtag_run, top_run):
+            bq.save_trend_started(user_id=user.get("id"), market=request.market.upper(), target_date=request.target_date, run=run)
+        return {"target_date": request.target_date, "runs": [hashtag_run, top_run]}
+    except MonidError as exc:
+        raise HTTPException(502, str(exc))
+    except Exception as exc:
+        logger.exception("Trend radar start error")
+        raise HTTPException(503, f"No se pudo iniciar el radar: {str(exc)[:240]}")
+
+@app.get("/api/trends/radar/run/{run_id}")
+def trend_radar_run_status(run_id: str, target_date: str, authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
+    try:
+        result = get_run(run_id)
+        if str(result.get("status", "")).upper() == "COMPLETED":
+            endpoint = str(result.get("endpoint") or "")
+            if endpoint.endswith("tiktok-scraper"):
+                ingested = bq.save_monid_result(user_id=user.get("id"), run=result)
+            else:
+                ingested = bq.save_trend_result(user_id=user.get("id"), market="CO", target_date=target_date, run=result)
+            return {"run": result, "ingested": ingested}
+        return {"run": result, "ingested": None}
+    except MonidError as exc:
+        raise HTTPException(502, str(exc))
+    except Exception as exc:
+        logger.exception("Trend radar status error")
+        raise HTTPException(503, f"No se pudo consultar el radar: {str(exc)[:240]}")
+
+@app.post("/api/trends/radar/enrich")
+def trend_radar_enrich(request: TrendRadarEnrichRequest, authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
+    hashtags = [str(item).strip().lstrip("#") for item in request.hashtags if str(item).strip()][:20]
+    if not hashtags:
+        raise HTTPException(400, "No hay hashtags para enriquecer.")
+    try:
+        date.fromisoformat(request.target_date)
+        run = start_provider_run(
+            provider="apify",
+            endpoint="/apidojo/tiktok-scraper",
+            input_body={"keywords": hashtags, "sortType": "DATE_POSTED", "location": request.market.upper(), "maxItems": 100, "includeSearchKeywords": True},
+        )
+        bq.save_trend_started(user_id=user.get("id"), market=request.market.upper(), target_date=request.target_date, run=run)
+        return run
+    except ValueError:
+        raise HTTPException(400, "target_date debe tener formato YYYY-MM-DD.")
+    except MonidError as exc:
+        raise HTTPException(502, str(exc))
+    except Exception as exc:
+        logger.exception("Trend radar enrichment start error")
+        raise HTTPException(503, f"No se pudo enriquecer el radar: {str(exc)[:240]}")
+
+@app.get("/api/trends/radar")
+def trend_radar(market: str = "CO", target_date: str = "", authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
+    target = target_date or date.today().isoformat()
+    try:
+        date.fromisoformat(target)
+        return bq.get_trend_radar(user_id=user.get("id"), market=market.upper(), target_date=target)
+    except ValueError:
+        raise HTTPException(400, "target_date debe tener formato YYYY-MM-DD.")
+    except Exception as exc:
+        logger.exception("Trend radar read error")
+        raise HTTPException(503, f"No se pudo leer el radar: {str(exc)[:240]}")
 
 def _to_number(value: object) -> float:
     try:
@@ -287,7 +380,8 @@ def weekly_chat(request: WeeklyChatRequest, authorization: str | None = Header(d
                 previous_week_start=previous_start.isoformat(), previous_week_end=previous_end.isoformat(),
                 analysis=page,
             )
-        answer, error = ask_weekly_chat(question, page, chat_records, request.messages)
+        radar = bq.get_trend_radar(user_id=user.get("id"), market=market, target_date=current_start.isoformat())
+        answer, error = ask_weekly_chat(question, {**page, "trend_radar": radar}, chat_records, request.messages)
         if error:
             raise HTTPException(503, f"No se pudo consultar el cerebro analítico: {error[:240]}")
         ranking = _chat_ranking(chat_records, question)
