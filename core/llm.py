@@ -100,11 +100,17 @@ def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: li
         prompt = (
             "Actúa como el cerebro analítico de Trend Intelligence Agent. "
             "Mantén el contexto de la conversación y responde en español usando únicamente el One Page y la evidencia entregada. "
-            "Distingue hechos observados de inferencias. No inventes cifras, conversaciones, marcas ni fuentes. "
-            "Si la evidencia no alcanza, dilo claramente. Devuelve exclusivamente un objeto JSON válido con estas claves: "
-            "respuesta_directa (string), evidencia (array de strings), interpretacion (array de strings), "
+            "Trabaja en dos capas y en este orden: primero identifica la tendencia cultural o temática observada sin depender de que aparezca una marca; "
+            "después evalúa si existe una conexión legítima con alguna marca del portafolio. "
+            "La ausencia de una mención explícita de marca NO demuestra que no exista una oportunidad. "
+            "Puedes proponer una conexión semántica o creativa, pero debes marcarla como hipótesis u oportunidad potencial y explicar qué evidencia la sostiene. "
+            "Si no hay conexión defendible, dilo sin forzarla. Distingue hechos observados de inferencias. "
+            "No inventes cifras, conversaciones, marcas ni fuentes. Si la evidencia no alcanza, dilo claramente. "
+            "Devuelve exclusivamente un objeto JSON válido con estas claves: "
+            "respuesta_directa (string), tendencia (objeto con nombre, descripcion y senales), evidencia (array de strings), "
+            "interpretacion (array de strings), conexiones_portafolio (array de objetos con marca, relacion, oportunidad, fundamento y nivel), "
             "accion (array de strings) y nivel_evidencia (string: Evidencia suficiente, Evidencia limitada o No concluyente). "
-            "No incluyas markdown, métricas ni claves adicionales. "
+            "En conexiones_portafolio usa nivel como Hecho, Hipótesis o Sin conexión. No incluyas markdown ni claves adicionales. "
             "Conversación previa: " + json.dumps(conversation, ensure_ascii=False) +
             "\nPregunta actual: " + question + "\n\nOne Page: " + json.dumps(page, ensure_ascii=False, default=str) +
             "\n\nEvidencia: " + json.dumps(compact_evidence, ensure_ascii=False, default=str)
@@ -118,8 +124,10 @@ def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: li
         parsed = json.loads(output)
         answer = {
             "respuesta_directa": str(parsed.get("respuesta_directa", parsed.get("idea_central", ""))),
+            "tendencia": parsed.get("tendencia") if isinstance(parsed.get("tendencia"), dict) else {},
             "evidencia": [str(item) for item in parsed.get("evidencia", parsed.get("que_vemos", [])) if item],
             "interpretacion": [str(item) for item in parsed.get("interpretacion", parsed.get("que_significa", [])) if item],
+            "conexiones_portafolio": [item for item in parsed.get("conexiones_portafolio", []) if isinstance(item, dict)],
             "accion": [str(item) for item in parsed.get("accion", parsed.get("que_haria", [])) if item],
             "nivel_evidencia": str(parsed.get("nivel_evidencia", "Evidencia limitada")),
         }
