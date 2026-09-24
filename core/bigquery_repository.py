@@ -554,6 +554,20 @@ def save_trend_result(*, user_id: str, market: str, target_date: str, run: dict[
     return {"run_id": run_id, "endpoint": endpoint, "result_count": result_count, "status": run.get("status")}
 
 
+def latest_trend_date(*, user_id: str, market: str) -> str | None:
+    ensure_tables()
+    rows = _run(
+        f"""
+        SELECT CAST(MAX(target_date) AS STRING) AS target_date
+        FROM {_table('trend_runs')}
+        WHERE user_id = @user_id AND market = @market
+        """,
+        [("user_id", "STRING", user_id), ("market", "STRING", market)],
+    )
+    value = dict(rows[0]).get("target_date") if rows else None
+    return str(value) if value else None
+
+
 def get_trend_radar(*, user_id: str, market: str, target_date: str) -> dict[str, Any]:
     ensure_tables()
     hashtag_rows = _run(

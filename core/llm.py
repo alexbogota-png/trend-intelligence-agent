@@ -61,14 +61,14 @@ def summarize_weekly(page: dict) -> tuple[dict | None, str | None]:
                 "Resume este one page semanal en español. Usa únicamente la evidencia entregada. "
                 "No inventes hechos, cifras, marcas ni aprendizajes. Mantén la sección pending vacía. "
                 "Devuelve objetos con id e insight. Datos: "
-                + json.dumps(page, ensure_ascii=False)
+                + json.dumps(page, ensure_ascii=False, default=str)
             )
             parsed = model.invoke(prompt).model_dump()
             return {str(x.get("id")): str(x.get("insight", "")) for x in parsed.get("sections", []) if x.get("id")}, None
         except Exception:
             pass
         from openai import OpenAI
-        prompt = f"""Resume este one page semanal en español. Usa únicamente la evidencia entregada; no inventes hechos, cifras, marcas ni aprendizajes. Devuelve JSON válido con una clave sections, cuyo valor sea una lista de objetos con id e insight. Mantén la sección pending como pendiente. Escribe insights ejecutivos, claros y breves. Datos: {json.dumps(page, ensure_ascii=False)}"""
+        prompt = f"""Resume este one page semanal en español. Usa únicamente la evidencia entregada; no inventes hechos, cifras, marcas ni aprendizajes. Devuelve JSON válido con una clave sections, cuyo valor sea una lista de objetos con id e insight. Mantén la sección pending como pendiente. Escribe insights ejecutivos, claros y breves. Datos: {json.dumps(page, ensure_ascii=False, default=str)}"""
         response = OpenAI().chat.completions.create(
             model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
             messages=[{"role": "user", "content": prompt}],
@@ -106,7 +106,7 @@ def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: li
             "accion (array de strings) y nivel_evidencia (string: Evidencia suficiente, Evidencia limitada o No concluyente). "
             "No incluyas markdown, métricas ni claves adicionales. "
             "Conversación previa: " + json.dumps(conversation, ensure_ascii=False) +
-            "\nPregunta actual: " + question + "\n\nOne Page: " + json.dumps(page, ensure_ascii=False) +
+            "\nPregunta actual: " + question + "\n\nOne Page: " + json.dumps(page, ensure_ascii=False, default=str) +
             "\n\nEvidencia: " + json.dumps(compact_evidence, ensure_ascii=False, default=str)
         )
         response = OpenAI().chat.completions.create(
