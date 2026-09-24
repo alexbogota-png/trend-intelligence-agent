@@ -1,4 +1,4 @@
-import json, os
+import json, os, re
 
 
 def _structured_interpret(result: dict) -> str | None:
@@ -79,8 +79,23 @@ def summarize_weekly(page: dict) -> tuple[dict | None, str | None]:
     except Exception as e: return None, str(e)
 
 
+def _chat_smalltalk(question: str) -> dict | None:
+    """Handle conversational messages without asking the model to interpret the radar."""
+    normalized = re.sub(r"[^a-záéíóúüñ ]", "", question.lower()).strip()
+    if normalized in {"hola", "buenas", "buenos dias", "buenos días", "buenas tardes", "buenas noches", "hey", "hello"}:
+        return {"tipo_respuesta": "saludo", "mostrar_analisis": False, "respuesta_directa": "Hola. Puedo ayudarte a leer las tendencias y señales del radar.", "sugerencias": ["¿Qué tendencia está creciendo más?", "¿Qué conversaciones podrían ser una oportunidad para Savital?", "¿Qué audios o hashtags están tomando fuerza?"], "nivel_evidencia": "No aplica"}
+    if normalized in {"gracias", "muchas gracias", "ok", "listo"}:
+        return {"tipo_respuesta": "cierre", "mostrar_analisis": False, "respuesta_directa": "De acuerdo. Cuando quieras, podemos seguir explorando las señales del radar.", "sugerencias": [], "nivel_evidencia": "No aplica"}
+    if normalized in {"que puedes hacer", "qué puedes hacer", "ayuda", "como funciona", "cómo funciona"}:
+        return {"tipo_respuesta": "ayuda", "mostrar_analisis": False, "respuesta_directa": "Puedo identificar tendencias, explicar la evidencia, evaluar conexiones con el portafolio y proponer próximos pasos.", "sugerencias": ["¿Cuál es la conversación emergente más relevante?", "¿Qué señal tiene mayor potencial de crecimiento?", "¿Hay una conexión defendible con alguna marca?"], "nivel_evidencia": "No aplica"}
+    return None
+
+
 def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: list[dict] | None = None) -> tuple[dict | None, str | None]:
     """Answer a question using only the selected week's One Page and evidence."""
+    smalltalk = _chat_smalltalk(question)
+    if smalltalk:
+        return smalltalk, None
     if not os.getenv("OPENAI_API_KEY"):
         return None, "OPENAI_API_KEY no está configurada en el servidor."
     try:
@@ -100,6 +115,8 @@ def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: li
         prompt = (
             "Actúa como el cerebro analítico de Trend Intelligence Agent. "
             "Mantén el contexto de la conversación y responde en español usando únicamente el One Page y la evidencia entregada. "
+            "Clasifica la intención como analisis_datos, pregunta_portafolio, ranking, ayuda u otra. "
+            "Si la pregunta no pide analizar datos, responde de forma breve y no rellenes tendencia, evidencia ni conexiones con el contexto disponible. "
             "Trabaja en dos capas y en este orden: primero identifica la tendencia cultural o temática observada sin depender de que aparezca una marca; "
             "después evalúa si existe una conexión legítima con alguna marca del portafolio. "
             "La ausencia de una mención explícita de marca NO demuestra que no exista una oportunidad. "
@@ -107,9 +124,10 @@ def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: li
             "Si no hay conexión defendible, dilo sin forzarla. Distingue hechos observados de inferencias. "
             "No inventes cifras, conversaciones, marcas ni fuentes. Si la evidencia no alcanza, dilo claramente. "
             "Devuelve exclusivamente un objeto JSON válido con estas claves: "
-            "respuesta_directa (string), tendencia (objeto con nombre, descripcion y senales), evidencia (array de strings), "
+            "tipo_respuesta (string), mostrar_analisis (boolean), respuesta_directa (string), sugerencias (array de strings), "
+            "tendencia (objeto con nombre, descripcion y senales; vacío si no aplica), evidencia (array de strings), "
             "interpretacion (array de strings), conexiones_portafolio (array de objetos con marca, relacion, oportunidad, fundamento y nivel), "
-            "accion (array de strings) y nivel_evidencia (string: Evidencia suficiente, Evidencia limitada o No concluyente). "
+            "accion (array de strings) y nivel_evidencia (string: Evidencia suficiente, Evidencia limitada, No concluyente o No aplica). "
             "En conexiones_portafolio usa nivel como Hecho, Hipótesis o Sin conexión. No incluyas markdown ni claves adicionales. "
             "Conversación previa: " + json.dumps(conversation, ensure_ascii=False) +
             "\nPregunta actual: " + question + "\n\nOne Page: " + json.dumps(page, ensure_ascii=False, default=str) +
@@ -122,13 +140,22 @@ def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: li
         )
         output = response.choices[0].message.content or "{}"
         parsed = json.loads(output)
+        def as_list(value):
+            return value if isinstance(value, list) else []
+
+        raw_show_analysis = parsed.get("mostrar_analisis", True)
+        show_analysis = raw_show_analysis if isinstance(raw_show_analysis, bool) else str(raw_show_analysis).lower() not in {"false", "0", "no"}
+
         answer = {
+            "tipo_respuesta": str(parsed.get("tipo_respuesta", "analisis_datos")),
+            "mostrar_analisis": show_analysis,
             "respuesta_directa": str(parsed.get("respuesta_directa", parsed.get("idea_central", ""))),
+            "sugerencias": [str(item) for item in as_list(parsed.get("sugerencias")) if item],
             "tendencia": parsed.get("tendencia") if isinstance(parsed.get("tendencia"), dict) else {},
-            "evidencia": [str(item) for item in parsed.get("evidencia", parsed.get("que_vemos", [])) if item],
-            "interpretacion": [str(item) for item in parsed.get("interpretacion", parsed.get("que_significa", [])) if item],
-            "conexiones_portafolio": [item for item in parsed.get("conexiones_portafolio", []) if isinstance(item, dict)],
-            "accion": [str(item) for item in parsed.get("accion", parsed.get("que_haria", [])) if item],
+            "evidencia": [str(item) for item in as_list(parsed.get("evidencia", parsed.get("que_vemos", []))) if item],
+            "interpretacion": [str(item) for item in as_list(parsed.get("interpretacion", parsed.get("que_significa", []))) if item],
+            "conexiones_portafolio": [item for item in as_list(parsed.get("conexiones_portafolio")) if isinstance(item, dict)],
+            "accion": [str(item) for item in as_list(parsed.get("accion", parsed.get("que_haria", []))) if item],
             "nivel_evidencia": str(parsed.get("nivel_evidencia", "Evidencia limitada")),
         }
         return answer, None
