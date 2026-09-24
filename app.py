@@ -123,6 +123,23 @@ def _chat_visual(records: list[dict]) -> dict:
         "note": "Cifras calculadas directamente sobre la evidencia almacenada en BigQuery.",
     }
 
+def _chat_answer_text(answer: dict | str | None) -> str:
+    """Keep a readable fallback for older frontend deployments."""
+    if isinstance(answer, str):
+        return answer
+    if not isinstance(answer, dict):
+        return "No se pudo construir una respuesta estructurada."
+    parts = []
+    if answer.get("idea_central"):
+        parts.append(f"Idea central\n{answer['idea_central']}")
+    for key, title in (("que_vemos", "Qué vemos"), ("que_significa", "Qué significa"), ("que_haria", "Qué haría")):
+        items = answer.get(key) or []
+        if items:
+            parts.append(title + "\n" + "\n".join(f"• {item}" for item in items))
+    if answer.get("nivel_evidencia"):
+        parts.append(f"Nivel de evidencia\n{answer['nivel_evidencia']}")
+    return "\n\n".join(parts)
+
 @app.post("/api/monid/run")
 def monid_run(request: MonidRunRequest, authorization: str | None = Header(default=None)):
     user = require_user(authorization)
@@ -253,7 +270,8 @@ def weekly_chat(request: WeeklyChatRequest, authorization: str | None = Header(d
         if error:
             raise HTTPException(503, f"No se pudo consultar el cerebro analítico: {error[:240]}")
         return {
-            "answer": answer,
+            "answer": _chat_answer_text(answer),
+            "structured_answer": answer,
             "visual": _chat_visual(chat_records),
             "week_start": current_start.isoformat(),
             "market": market,
