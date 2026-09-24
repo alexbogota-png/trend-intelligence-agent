@@ -38,7 +38,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       const text=await response.text();
       let data;try{data=JSON.parse(text)}catch{throw Error(`Error del servidor (${response.status}): ${text.slice(0,240)}`)}
       if(!response.ok)throw Error(data.detail||'No fue posible responder la pregunta.');
-      weeklyConversation.push({role:'assistant',content:data.answer,visual:data.visual});
+      weeklyConversation.push({role:'assistant',content:data.structured_answer||data.answer,visual:data.visual});
     }catch(error){weeklyConversation.push({role:'assistant',content:error.message})}
     renderWeeklyChat();
   };
