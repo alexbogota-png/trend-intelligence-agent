@@ -102,8 +102,8 @@ def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: li
             "Mantén el contexto de la conversación y responde en español usando únicamente el One Page y la evidencia entregada. "
             "Distingue hechos observados de inferencias. No inventes cifras, conversaciones, marcas ni fuentes. "
             "Si la evidencia no alcanza, dilo claramente. Devuelve exclusivamente un objeto JSON válido con estas claves: "
-            "idea_central (string), que_vemos (array de strings), que_significa (array de strings), "
-            "que_haria (array de strings) y nivel_evidencia (string: Evidencia suficiente, Evidencia limitada o No concluyente). "
+            "respuesta_directa (string), evidencia (array de strings), interpretacion (array de strings), "
+            "accion (array de strings) y nivel_evidencia (string: Evidencia suficiente, Evidencia limitada o No concluyente). "
             "No incluyas markdown, métricas ni claves adicionales. "
             "Conversación previa: " + json.dumps(conversation, ensure_ascii=False) +
             "\nPregunta actual: " + question + "\n\nOne Page: " + json.dumps(page, ensure_ascii=False) +
@@ -117,10 +117,10 @@ def ask_weekly_chat(question: str, page: dict, evidence: list[dict], history: li
         output = response.choices[0].message.content or "{}"
         parsed = json.loads(output)
         answer = {
-            "idea_central": str(parsed.get("idea_central", "")),
-            "que_vemos": [str(item) for item in parsed.get("que_vemos", []) if item],
-            "que_significa": [str(item) for item in parsed.get("que_significa", []) if item],
-            "que_haria": [str(item) for item in parsed.get("que_haria", []) if item],
+            "respuesta_directa": str(parsed.get("respuesta_directa", parsed.get("idea_central", ""))),
+            "evidencia": [str(item) for item in parsed.get("evidencia", parsed.get("que_vemos", [])) if item],
+            "interpretacion": [str(item) for item in parsed.get("interpretacion", parsed.get("que_significa", [])) if item],
+            "accion": [str(item) for item in parsed.get("accion", parsed.get("que_haria", [])) if item],
             "nivel_evidencia": str(parsed.get("nivel_evidencia", "Evidencia limitada")),
         }
         return answer, None
