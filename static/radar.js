@@ -19,8 +19,10 @@ async function loadRadar(targetDate=''){
 }
 document.addEventListener('DOMContentLoaded',()=>{
   const button=document.querySelector('#run-trend-radar'); if(!button)return;
-  loadRadar();
-  window.setInterval(()=>loadRadar(),300000);
+  let refreshTimer=null;
+  const startAutoLoad=()=>{if(!window.getAccessToken?.())return;loadRadar();if(!refreshTimer)refreshTimer=window.setInterval(()=>loadRadar(),300000)};
+  window.addEventListener('auth:changed',event=>{if(event.detail?.authenticated)startAutoLoad()});
+  startAutoLoad();
   button.onclick=async()=>{
     const targetDate=yesterdayKey(), status=document.querySelector('#weekly-status');
     const weekInput=document.querySelector('#week-start'); if(weekInput)weekInput.value=targetDate;
