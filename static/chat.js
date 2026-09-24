@@ -7,7 +7,8 @@ const suggestionList=items=>Array.isArray(items)&&items.length?`<section class="
 const renderAnswer=answer=>{
   if(typeof answer==='string')return `<p>${chatEscape(answer)}</p>`;
   const isAnalytical=answer?.mostrar_analisis!==false;
-  return `<div class="weekly-chat-answer"><section class="chat-insight-section chat-central"><h4>Respuesta directa</h4><p>${chatEscape(answer?.respuesta_directa||answer?.idea_central||'')}</p></section>${isAnalytical?`${trendBlock(answer?.tendencia)}${chatList('Evidencia',answer?.evidencia||answer?.que_vemos)}${chatList('Interpretación',answer?.interpretacion||answer?.que_significa)}${connectionList(answer?.conexiones_portafolio)}${chatList('Siguiente paso',answer?.accion||answer?.que_haria)}`:suggestionList(answer?.sugerencias)}<div class="chat-evidence-level">${chatEscape(answer?.nivel_evidencia||'')}</div></div>`;
+  const evidenceLevel=isAnalytical&&answer?.nivel_evidencia?`<div class="chat-evidence-level">${chatEscape(answer.nivel_evidencia)}</div>`:'';
+  return `<div class="weekly-chat-answer ${isAnalytical?'':'chat-compact'}"><section class="chat-insight-section chat-central"><h4>Respuesta directa</h4><p>${chatEscape(answer?.respuesta_directa||answer?.idea_central||'')}</p></section>${isAnalytical?`${trendBlock(answer?.tendencia)}${chatList('Evidencia',answer?.evidencia||answer?.que_vemos)}${chatList('Interpretación',answer?.interpretacion||answer?.que_significa)}${connectionList(answer?.conexiones_portafolio)}${chatList('Siguiente paso',answer?.accion||answer?.que_haria)}`:suggestionList(answer?.sugerencias)}${evidenceLevel}</div>`;
 };
 const renderRanking=ranking=>ranking?.length?`<div class="chat-ranking"><h4>Top ${ranking.length} por interacciones</h4><ol>${ranking.map(item=>`<li><div><strong>${chatEscape(item.title)}</strong><small>${chatEscape(item.author)} · ${chatEscape(item.published_at)}</small></div><b>${Number(item.interactions||0).toLocaleString('es-CO')}</b></li>`).join('')}</ol></div>`:'';
 const renderVisual=visual=>{
@@ -17,7 +18,7 @@ const renderVisual=visual=>{
   const bars=(visual.bars||[]).map(item=>`<div class="chat-bar-row"><div class="chat-bar-label"><span>${chatEscape(item.label)}</span><strong>${chatEscape(item.value)}</strong></div><div class="chat-bar-track" role="progressbar" aria-label="${chatEscape(item.label)}" aria-valuenow="${Number(item.value)||0}" aria-valuemin="0" aria-valuemax="${max}"><span style="width:${Math.max(4,((Number(item.value)||0)/max)*100)}%"></span></div></div>`).join('');
   return `<div class="chat-visual"><h4>${chatEscape(visual.title||'Evidencia')}</h4><div class="chat-metrics">${metrics}</div>${bars?`<div class="chat-bars">${bars}</div>`:''}<small>${chatEscape(visual.note||'')}</small></div>`;
 };
-const renderAssistant=item=>`${renderAnswer(item.content)}${renderRanking(item.ranking)}${renderVisual(item.visual)}`;
+const renderAssistant=item=>`${renderAnswer(item.content)}${item.content?.mostrar_analisis===false?'':`${renderRanking(item.ranking)}${renderVisual(item.visual)}`}`;
 function renderWeeklyChat(){
   const box=document.querySelector('#weekly-chat-messages');
   if(!box)return;
