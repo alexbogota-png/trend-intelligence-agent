@@ -174,10 +174,12 @@ def trend_radar_enrich(request: TrendRadarEnrichRequest, authorization: str | No
 @app.get("/api/trends/radar")
 def trend_radar(market: str = "CO", target_date: str = "", authorization: str | None = Header(default=None)):
     user = require_user(authorization)
-    target = target_date or date.today().isoformat()
     try:
+        target = target_date or bq.latest_trend_date(user_id=user.get("id"), market=market.upper()) or (date.today() - timedelta(days=1)).isoformat()
         date.fromisoformat(target)
-        return bq.get_trend_radar(user_id=user.get("id"), market=market.upper(), target_date=target)
+        result = bq.get_trend_radar(user_id=user.get("id"), market=market.upper(), target_date=target)
+        result["latest_available_date"] = target
+        return result
     except ValueError:
         raise HTTPException(400, "target_date debe tener formato YYYY-MM-DD.")
     except Exception as exc:
