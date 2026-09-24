@@ -123,6 +123,27 @@ def _chat_visual(records: list[dict]) -> dict:
         "note": "Cifras calculadas directamente sobre la evidencia almacenada en BigQuery.",
     }
 
+def _chat_ranking(records: list[dict], question: str) -> list[dict]:
+    ranking_terms = ("top", "ranking", "más interacción", "mas interacción", "mejor desempeño", "mejor desempeno")
+    if not any(term in question.lower() for term in ranking_terms):
+        return []
+    ranked = []
+    for row in records:
+        likes = int(_to_number(row.get("likes")))
+        comments = int(_to_number(row.get("comments")))
+        shares = int(_to_number(row.get("shares")))
+        ranked.append({
+            "title": str(row.get("title") or "Sin título"),
+            "author": str(row.get("author") or "Sin autor"),
+            "published_at": str(row.get("published_at") or "")[:10],
+            "likes": likes,
+            "comments": comments,
+            "shares": shares,
+            "interactions": likes + comments + shares,
+            "url": str(row.get("url") or ""),
+        })
+    return sorted(ranked, key=lambda row: (-row["interactions"], -row["likes"], row["title"]))[:5]
+
 def _chat_answer_text(answer: dict | str | None) -> str:
     """Keep a readable fallback for older frontend deployments."""
     if isinstance(answer, str):
@@ -130,9 +151,9 @@ def _chat_answer_text(answer: dict | str | None) -> str:
     if not isinstance(answer, dict):
         return "No se pudo construir una respuesta estructurada."
     parts = []
-    if answer.get("idea_central"):
-        parts.append(f"Idea central\n{answer['idea_central']}")
-    for key, title in (("que_vemos", "Qué vemos"), ("que_significa", "Qué significa"), ("que_haria", "Qué haría")):
+    if answer.get("respuesta_directa"):
+        parts.append(f"Respuesta directa\n{answer['respuesta_directa']}")
+    for key, title in (("evidencia", "Evidencia"), ("interpretacion", "Interpretación"), ("accion", "Acción sugerida")):
         items = answer.get(key) or []
         if items:
             parts.append(title + "\n" + "\n".join(f"• {item}" for item in items))
@@ -269,9 +290,11 @@ def weekly_chat(request: WeeklyChatRequest, authorization: str | None = Header(d
         answer, error = ask_weekly_chat(question, page, chat_records, request.messages)
         if error:
             raise HTTPException(503, f"No se pudo consultar el cerebro analítico: {error[:240]}")
+        ranking = _chat_ranking(chat_records, question)
         return {
             "answer": _chat_answer_text(answer),
             "structured_answer": answer,
+            "ranking": ranking,
             "visual": _chat_visual(chat_records),
             "week_start": current_start.isoformat(),
             "market": market,
