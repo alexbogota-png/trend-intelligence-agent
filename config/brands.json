@@ -34,5 +34,17 @@
     "constraints": ["avoid medical claims", "keep movement at the center"],
     "positioning": "Personal care and protection that helps people move with confidence",
     "markets": ["global"]
+  },
+  {
+    "id": "savital",
+    "name": "Savital",
+    "categories": ["hair care", "beauty", "personal care"],
+    "audiences": ["young adults", "families", "hair-care consumers"],
+    "territories": ["hair confidence", "care routines", "natural ingredients", "shine and repair"],
+    "products": ["shampoo", "conditioner", "hair cream", "hair treatments"],
+    "channels": ["TikTok", "Instagram", "e-commerce", "retail"],
+    "constraints": ["substantiate hair-care claims", "avoid implying guaranteed results"],
+    "positioning": "Accessible hair care connected to daily routines, nourishment and confidence",
+    "markets": ["Colombia"]
   }
 ]
