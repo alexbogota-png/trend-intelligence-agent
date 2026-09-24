@@ -7,7 +7,7 @@ from datetime import date
 
 SECTIONS = [
     {"id": "culture", "title": "Qué cambió en la cultura", "prompt": "La señal cultural y por qué importa"},
-    {"id": "brands", "title": "Qué significa para nuestras marcas", "prompt": "Conversaciones alrededor de Rexona, Pond’s y Dove"},
+    {"id": "brands", "title": "Qué significa para nuestro portafolio", "prompt": "Conversaciones alrededor de Rexona, Pond’s, Dove y Savital"},
     {"id": "pending", "title": "Qué debemos seguir explorando", "prompt": "Sección pendiente de definir"},
     {"id": "competition", "title": "Qué hizo la categoría", "prompt": "Activaciones de competencia y aprendizajes"},
 ]
@@ -91,6 +91,8 @@ def _conversation_label(raw: str) -> str:
     low = _fold(text)
     if "rexona" in low and ("desodor" in low or "clinical" in low or "antiperspir" in low):
         return "Rexona: desempeño y protección del desodorante"
+    if "savital" in low or any(x in low for x in ["cabello", "shampoo", "champu", "acondicionador", "romero", "argan", "argán", "sabila", "sábila", "frizz"]):
+        return "Savital y el cuidado del cabello"
     if ("dove" in low or "pond" in low) and any(x in low for x in ["serum", "hidrat", "crema", "piel", "skincare"]):
         brand = "Dove" if "dove" in low else "Pond’s"
         return f"{brand}: hidratación y cuidado de la piel"
@@ -131,14 +133,14 @@ def _weekly_analysis(text: str, filename: str) -> dict | None:
         label = f"{movement} vs. la semana anterior" if previous_key else "concentró el mayor volumen del periodo"
         trend_rows.append({"name": name, "count": count, "previous": old, "change": change, "label": label})
     def brand_rows(brand):
-        aliases = {"Rexona": ["rexona"], "Pond’s": ["pond", "pond's", "pond’s"], "Dove": ["dove"]}[brand]
+        aliases = {"Rexona": ["rexona"], "Pond’s": ["pond", "pond's", "pond’s"], "Dove": ["dove"], "Savital": ["savital"]}[brand]
         matched = [r for r in current if any(a in " ".join(value(r, k).lower() for k in ["Texto", "Tendencia", "Temas", "Marcas en la imagen"]) for a in aliases)]
         old_matched = [r for r in previous if any(a in " ".join(value(r, k).lower() for k in ["Texto", "Tendencia", "Temas", "Marcas en la imagen"]) for a in aliases)]
         topics = Counter(t for r in matched for t in re.split(r"[,|]", value(r, "Temas")) if t.strip())
         conversations = Counter(_conversation_label(conversation_source(r)) for r in matched)
         return matched, old_matched, topics, conversations
     brand_data = {}
-    for brand in ["Rexona", "Pond’s", "Dove"]:
+    for brand in ["Rexona", "Pond’s", "Dove", "Savital"]:
         matched, old_matched, topics, conversations = brand_rows(brand)
         brand_data[brand] = {"mentions": len(matched), "previous": len(old_matched), "topics": topics.most_common(3), "conversations": conversations.most_common(2), "sample": [value(r, "Texto")[:180] for r in matched[:3] if value(r, "Texto")]}
     candidate_names = ["Nivea", "Neutrogena", "Garnier", "L’Oréal", "L'Oreal", "CeraVe", "Eucerin", "Vaseline", "Old Spice", "Axe", "Secret", "Gillette", "Adidas", "Nike", "Puma"]
@@ -164,7 +166,7 @@ def _weekly_analysis(text: str, filename: str) -> dict | None:
     return {"week_start": min(d for _, d in dated if d.isocalendar()[:2] == latest_key).isoformat(), "title": "One Page semanal", "source_file": filename, "comparison": comparison, "metrics": {"current_mentions": len(current), "previous_mentions": len(previous), "top_conversation": trend_rows[0]["name"] if trend_rows else "Sin conversación dominante", "platforms": counter(current, "Fuente").most_common(5)}, "sections": [{"id": "culture", "title": "Qué fue tendencia esta semana", "prompt": "La conversación que movió el periodo", "insight": f"{trend_rows[0]['name']} fue la conversación con mayor volumen, con {trend_rows[0]['count']} menciones." if trend_rows else "No se identificó una conversación dominante.", "implication": "Este es el punto de partida de la lectura: antes de evaluar marcas, entendemos qué conversación tuvo escala.", "bullets": culture_bullets, "evidence": [f"{x['name']} · {x['count']} menciones · anterior: {x['previous']}" for x in trend_rows]}, {"id": "brands", "title": "Cómo impacta a nuestras marcas", "prompt": "Rexona, Pond’s y Dove por separado", "insight": "La relevancia no es igual para las tres marcas. La señal se desglosa por volumen, temas y presencia en el texto.", "implication": "La oportunidad depende de que cada marca tenga legitimidad para entrar en la conversación.", "bullets": brand_bullets, "evidence": []}, {"id": "pending", "title": "", "prompt": "", "insight": "", "implication": "", "bullets": [], "evidence": []}, {"id": "competition", "title": "Qué está haciendo la competencia", "prompt": "Posibles competidores y aprendizaje de categoría", "insight": "El análisis identifica actores que aparecen junto a las conversaciones del periodo y los convierte en señales competitivas.", "implication": "Estas señales sirven para observar quién está ganando presencia y qué tipo de respuesta está generando la categoría.", "bullets": comp_bullets, "evidence": []}], "raw_excerpt": _readable_source(text)[:6000]}
 
 def _v2_text(row: dict) -> str:
-    return " ".join(str(row.get(k) or "") for k in ["Tendencia", "Título", "Texto", "Temas", "Categorías automáticas", "Marcas en la imagen"])
+    return " ".join(str(row.get(k) or "") for k in ["Tendencia", "Título", "Texto", "Temas", "Categorías automáticas", "Marcas en la imagen", "keyword", "hashtags"])
 
 def _v2_label(row: dict) -> str:
     low = _fold(_v2_text(row))
@@ -176,6 +178,14 @@ def _v2_label(row: dict) -> str:
         return "Pond’s y el cuidado de la piel"
     if "rexona" in low and any(x in low for x in ["desodor", "clinical", "antiperspir"]):
         return "Rexona y la protección corporal"
+    if "savital" in low or any(x in low for x in ["shampoo", "champu", "acondicionador", "cabello", "romero", "argan", "argán", "sabila", "sábila", "frizz"]):
+        return "Savital y el cuidado del cabello"
+    if "skincare" in low or "skin care" in low:
+        return "Skincare y cuidado de la piel"
+    if "deodorant" in low or "desodor" in low:
+        return "Desodorantes y protección corporal"
+    if "beauty" in low or "belleza" in low:
+        return "Belleza y autocuidado"
     if any(x in low for x in ["hidrat", "serum corporal", "crema corporal", "skincare", "cuidado de la piel"]):
         return "Hidratación y cuidado de la piel"
     if any(x in low for x in ["desodor", "antiperspir", "clinical"]):
@@ -228,7 +238,7 @@ def _weekly_analysis_v2(text: str, filename: str) -> dict | None:
         bullets.append(f"Conversaciones principales: {', '.join(f'{n} ({c})' for n,c in conversations.most_common(2)) or 'no se identificó una conversación específica' }.")
         bullets.append(f"Temas más frecuentes: {', '.join(n for n,_ in topics.most_common(3)) or 'sin tema dominante identificado'}.")
         return {"name": name, "mentions": len(now), "previous": len(old), "change": change, "sentiment": Counter(str(r.get("Sentimiento") or "") for r in now).most_common(3), "bullets": bullets, "evidence": [str(r.get("Título") or r.get("Texto") or "")[:220] for r in now[:5]]}
-    brand_data = [brand_info("Rexona", ["rexona"]), brand_info("Pond’s", ["pond", "pond's", "pond’s"]), brand_info("Dove", ["dove"])]
+    brand_data = [brand_info("Rexona", ["rexona"]), brand_info("Pond’s", ["pond", "pond's", "pond’s"]), brand_info("Dove", ["dove"]), brand_info("Savital", ["savital"])]
     candidates = {"Nivea":"directo", "Neutrogena":"directo", "Garnier":"directo", "L’Oréal":"directo", "L'Oreal":"directo", "CeraVe":"directo", "Eucerin":"directo", "Vaseline":"directo", "Old Spice":"directo", "Axe":"directo", "Secret":"directo", "Adidas":"adyacente", "Nike":"adyacente", "Puma":"adyacente"}
     competitor_counts = Counter()
     for r in current:
