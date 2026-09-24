@@ -248,15 +248,17 @@ def _chat_answer_text(answer: dict | str | None) -> str:
     parts = []
     if answer.get("respuesta_directa"):
         parts.append(f"Respuesta directa\n{answer['respuesta_directa']}")
+    if answer.get("sugerencias"):
+        parts.append("Puedes preguntar\n" + "\n".join(f"• {item}" for item in answer["sugerencias"]))
     trend = answer.get("tendencia") or {}
-    if isinstance(trend, dict) and trend.get("nombre"):
+    if answer.get("mostrar_analisis", True) and isinstance(trend, dict) and trend.get("nombre"):
         parts.append(
             "Tendencia identificada\n"
             f"{trend.get('nombre')}\n{trend.get('descripcion', '')}"
         )
-    for key, title in (("evidencia", "Evidencia"), ("interpretacion", "Interpretación"), ("accion", "Acción sugerida")):
+    for key, title in (("evidencia", "Evidencia"), ("interpretacion", "Interpretación"), ("accion", "Siguiente paso")):
         items = answer.get(key) or []
-        if items:
+        if answer.get("mostrar_analisis", True) and items:
             parts.append(title + "\n" + "\n".join(f"• {item}" for item in items))
     connections = answer.get("conexiones_portafolio") or []
     if connections:
