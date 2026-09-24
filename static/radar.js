@@ -7,8 +7,20 @@ function renderRadar(data){
   const topViews=hashtags.reduce((sum,row)=>sum+Number(row.views||0),0);
   root.innerHTML=`<div class="radar-header"><div><div class="story-kicker">RADAR · ${radarEscape(data.target_date)}</div><h3>Señales detectadas en Colombia</h3></div><span class="radar-source">Fuente: BigQuery</span></div><div class="radar-metrics"><div><span>HASHTAGS</span><strong>${radarNumber(hashtags.length)}</strong></div><div><span>VISTAS ESTIMADAS</span><strong>${radarNumber(topViews)}</strong></div><div><span>PUBLICACIONES</span><strong>${radarNumber(posts.length)}</strong></div></div><div class="radar-grid"><article><h4>Conversaciones emergentes</h4>${hashtags.length?`<ol class="radar-list">${hashtags.slice(0,10).map(row=>`<li><div><strong>#${radarEscape(row.hashtag_name)}</strong><small>${radarNumber(row.publish_count)} publicaciones · ${radarNumber(row.views)} vistas</small></div><b>#${radarEscape(row.rank_index)}</b></li>`).join('')}</ol>`:'<p class="radar-muted">No hubo hashtags disponibles para esta fecha.</p>'}</article><article><h4>Publicaciones principales</h4>${posts.length?`<ol class="radar-list">${posts.slice(0,10).map(row=>`<li><div><strong>${radarEscape(row.title||'Sin título')}</strong><small>${radarEscape(row.author||'Sin autor')} · ${radarNumber(Number(row.likes||0)+Number(row.comments||0)+Number(row.shares||0))} interacciones</small></div><b>${radarNumber(row.views)}</b></li>`).join('')}</ol>`:'<p class="radar-muted">TikHub no devolvió contenidos destacados para Colombia en esta ejecución.</p>'}</article><article><h4>Audios detectados</h4>${sounds.length?`<ol class="radar-list">${sounds.slice(0,10).map(row=>`<li><div><strong>${radarEscape(row.sound_name||'Sin nombre')}</strong><small>${radarEscape(row.sound_author||'Sin autor')} · ${radarNumber(row.video_count)} videos</small></div><b>${radarNumber(row.views)}</b></li>`).join('')}</ol>`:'<p class="radar-muted">No hay datos de audio en esta fuente para la ejecución.</p>'}</article></div>`;
 }
+async function loadRadar(targetDate=''){
+  const root=document.querySelector('#trend-radar-dashboard'); if(!root)return;
+  root.innerHTML='<div class="radar-loading">Cargando la última información persistida en BigQuery...</div>';
+  try{
+    const query=targetDate?`?market=CO&target_date=${targetDate}`:'?market=CO';
+    const response=await fetch(`/api/trends/radar${query}`,{headers:authHeaders()});
+    const data=await response.json(); if(!response.ok)throw Error(data.detail||'No se pudo cargar el radar.');
+    renderRadar(data);
+  }catch(error){root.innerHTML=`<div class="radar-empty">${radarEscape(error.message)}</div>`}
+}
 document.addEventListener('DOMContentLoaded',()=>{
   const button=document.querySelector('#run-trend-radar'); if(!button)return;
+  loadRadar();
+  window.setInterval(()=>loadRadar(),300000);
   button.onclick=async()=>{
     const targetDate=yesterdayKey(), status=document.querySelector('#weekly-status');
     const weekInput=document.querySelector('#week-start'); if(weekInput)weekInput.value=targetDate;
