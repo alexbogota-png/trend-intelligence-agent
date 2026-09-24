@@ -248,10 +248,27 @@ def _chat_answer_text(answer: dict | str | None) -> str:
     parts = []
     if answer.get("respuesta_directa"):
         parts.append(f"Respuesta directa\n{answer['respuesta_directa']}")
+    trend = answer.get("tendencia") or {}
+    if isinstance(trend, dict) and trend.get("nombre"):
+        parts.append(
+            "Tendencia identificada\n"
+            f"{trend.get('nombre')}\n{trend.get('descripcion', '')}"
+        )
     for key, title in (("evidencia", "Evidencia"), ("interpretacion", "Interpretación"), ("accion", "Acción sugerida")):
         items = answer.get(key) or []
         if items:
             parts.append(title + "\n" + "\n".join(f"• {item}" for item in items))
+    connections = answer.get("conexiones_portafolio") or []
+    if connections:
+        lines = []
+        for item in connections:
+            if isinstance(item, dict):
+                lines.append(
+                    f"• {item.get('marca', 'Portafolio')}: {item.get('oportunidad') or item.get('relacion', '')} "
+                    f"[{item.get('nivel', 'Hipótesis')}]"
+                )
+        if lines:
+            parts.append("Conexiones con el portafolio\n" + "\n".join(lines))
     if answer.get("nivel_evidencia"):
         parts.append(f"Nivel de evidencia\n{answer['nivel_evidencia']}")
     return "\n\n".join(parts)
@@ -383,7 +400,12 @@ def weekly_chat(request: WeeklyChatRequest, authorization: str | None = Header(d
                 analysis=page,
             )
         radar = bq.get_trend_radar(user_id=user.get("id"), market=market, target_date=current_start.isoformat())
-        answer, error = ask_weekly_chat(question, {**page, "trend_radar": radar}, chat_records, request.messages)
+        answer, error = ask_weekly_chat(
+            question,
+            {**page, "trend_radar": radar, "portafolio": BRANDS},
+            chat_records,
+            request.messages,
+        )
         if error:
             raise HTTPException(503, f"No se pudo consultar el cerebro analítico: {error[:240]}")
         ranking = _chat_ranking(chat_records, question)
