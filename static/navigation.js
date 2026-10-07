@@ -1,12 +1,11 @@
 document.addEventListener('DOMContentLoaded',()=>{
-  const app=document.querySelector('#app'); if(!app)return;
-  const userBar=app.querySelector('.user-bar'), hero=app.querySelector('.hero'), upload=app.querySelector('.upload-panel'), method=app.querySelector('.method-section'), result=app.querySelector('#result'), weekly=app.querySelector('#weekly');
+  const app=document.querySelector('#app');if(!app)return;
+  const userBar=app.querySelector('.user-bar'),hero=app.querySelector('.hero'),upload=app.querySelector('.upload-panel'),method=app.querySelector('.method-section'),result=app.querySelector('#result'),weekly=app.querySelector('#weekly');
   if(!weekly)return;
-  const nav=document.createElement('nav'); nav.className='app-nav'; nav.innerHTML='<button class="nav-link active" data-view="home-view" type="button">Home</button><button class="nav-link" data-view="trend-view" type="button">Trend Intelligence</button><button class="nav-link" data-view="weekly-view" type="button">One Page semanal</button>';
-  const home=document.createElement('section'); home.id='home-view'; home.className='app-view home-view'; home.innerHTML='<header class="hero"><div class="eyebrow">TREND INTELLIGENCE AGENT <span class="live-dot"></span></div><h1>Convierte señales culturales en decisiones.</h1><p>Explora qué está escalando, entiende por qué importa y consulta al cerebro antes de llevar una oportunidad a Savital, Dove, Rexona o Pond’s.</p></header><div class="module-grid"><button class="module-card" data-go="trend-view" type="button"><span class="module-index">01</span><h2>Evaluar una tendencia</h2><p>Analiza un archivo puntual y revisa su fuerza, afinidad y potencial de activación.</p><span class="module-action">Ir al análisis →</span></button><button class="module-card" data-go="weekly-view" type="button"><span class="module-index">02</span><h2>Radar cultural</h2><p>Consulta las señales persistentes en BigQuery y conversa con el cerebro sobre lo que está creciendo.</p><span class="module-action">Abrir radar →</span></button></div><section class="home-note"><div class="panel-kicker">ESPACIO DE TRABAJO</div><p>El radar cultural es el punto de entrada recomendado.</p></section>';
-  const trend=document.createElement('section'); trend.id='trend-view'; trend.className='app-view hidden'; [hero,upload,method,result].forEach(el=>el&&trend.appendChild(el));
-  const week=document.createElement('section'); week.id='weekly-view'; week.className='app-view hidden'; week.appendChild(weekly);
-  app.insertBefore(nav,userBar.nextSibling); app.append(home,trend,week);
-  function show(id){[home,trend,week].forEach(v=>v.classList.toggle('hidden',v.id!==id));nav.querySelectorAll('.nav-link').forEach(b=>b.classList.toggle('active',b.dataset.view===id));window.scrollTo({top:0,behavior:'smooth'})}
-  nav.querySelectorAll('.nav-link').forEach(b=>b.onclick=()=>show(b.dataset.view));home.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>show(b.dataset.go));
+  const nav=document.createElement('nav');nav.className='app-nav';nav.innerHTML='<button class="nav-link active" data-view="weekly-view" type="button">Radar cultural</button><button class="nav-link" data-view="trend-view" type="button">Evaluar un archivo</button>';
+  const trend=document.createElement('section');trend.id='trend-view';trend.className='app-view hidden';[hero,upload,method,result].forEach(element=>element&&trend.appendChild(element));
+  const radar=document.createElement('section');radar.id='weekly-view';radar.className='app-view';radar.appendChild(weekly);
+  app.insertBefore(nav,userBar.nextSibling);app.append(trend,radar);
+  function show(id){[trend,radar].forEach(view=>view.classList.toggle('hidden',view.id!==id));nav.querySelectorAll('.nav-link').forEach(button=>button.classList.toggle('active',button.dataset.view===id));window.scrollTo({top:0,behavior:'smooth'})}
+  nav.querySelectorAll('.nav-link').forEach(button=>button.onclick=()=>show(button.dataset.view));
 });

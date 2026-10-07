@@ -1,1 +1,47 @@
-.trend-radar-dashboard{width:100%;margin:24px 0 36px;background:var(--soft);border-left:3px solid var(--primary);padding:28px}.radar-header{display:flex;justify-content:space-between;gap:20px;align-items:start}.radar-header h3{margin:6px 0 0;color:var(--dark)}.radar-source{font-size:12px;color:var(--muted)}.radar-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:20px 0}.radar-metrics div{background:rgba(255,255,255,.65);padding:14px;border-radius:8px}.radar-metrics span{display:block;font-size:11px;color:var(--muted)}.radar-metrics strong{display:block;font-size:20px;color:var(--primary);margin-top:3px}.radar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.radar-grid article{background:rgba(255,255,255,.55);padding:16px;border-radius:8px;min-width:0}.radar-grid h4{margin:0 0 10px;color:var(--primary)}.radar-list{list-style:none;margin:0;padding:0}.radar-list li{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid rgba(25,48,130,.12)}.radar-list li div{min-width:0}.radar-list strong,.radar-list small{display:block}.radar-list strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.radar-list small{font-size:11px;color:var(--muted);margin-top:3px}.radar-list b{color:var(--primary);white-space:nowrap}.radar-muted,.radar-empty,.radar-loading{color:var(--muted);margin:0}.radar-empty,.radar-loading{padding:16px}@media(max-width:720px){.radar-header,.radar-grid{display:block}.radar-grid article{margin-top:14px}.radar-metrics{grid-template-columns:1fr}.radar-source{display:block;margin-top:8px}}
+.trend-radar-dashboard{width:100%;margin:22px 0 28px;padding:24px;background:#f7f9fe;border:1px solid #dce5f4;border-radius:20px;box-shadow:0 14px 40px #17245e0a;color:#19244b}
+.radar-summary{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:2px 2px 20px;border-bottom:1px solid #e2e8f2}
+.radar-summary h3{margin:5px 0 4px;color:#171f54;font-size:22px;letter-spacing:-.03em}
+.radar-summary p{margin:0;font-size:13px;color:#77819b}
+.radar-eyebrow{font-size:10px;font-weight:900;letter-spacing:.13em;color:#4053d7}
+.radar-bq-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 11px;border-radius:99px;background:#fff;border:1px solid #e1e7f1;color:#596581;font-size:11px;font-weight:700;white-space:nowrap}
+.radar-bq-badge i{width:7px;height:7px;border-radius:50%;background:#10a978;box-shadow:0 0 0 3px #10a97820}
+.radar-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:16px 0 18px}
+.radar-kpis article{min-width:0;padding:16px 17px 14px;background:#fff;border:1px solid #e4e9f3;border-radius:13px;box-shadow:0 3px 12px #141f6e08}
+.radar-kpis span{display:block;color:#7b849d;font-size:9px;font-weight:900;letter-spacing:.1em;white-space:nowrap}
+.radar-kpis strong{display:block;margin:9px 0 3px;color:#20285c;font-size:clamp(21px,2vw,29px);line-height:1;letter-spacing:-.04em;overflow:hidden;text-overflow:ellipsis}
+.radar-kpis small{display:block;color:#8a93a8;font-size:10px;line-height:1.35}
+.radar-panels{display:grid;grid-template-columns:minmax(205px,.9fr) minmax(320px,1.35fr) minmax(205px,.9fr) minmax(205px,.9fr);gap:12px;align-items:stretch}
+.radar-panel{min-width:0;padding:17px 17px 7px;background:#fff;border:1px solid #e4e9f3;border-radius:14px}
+.radar-panel>header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;min-height:48px;margin-bottom:8px}
+.radar-panel h4{margin:4px 0 0;color:#20285c;font-size:15px;letter-spacing:-.02em}
+.radar-panel>header>small{padding-top:3px;color:#8992a7;font-size:9px;text-align:right}
+.radar-rank{list-style:none;margin:0;padding:0}
+.radar-rank li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 0;border-bottom:1px solid #edf0f6}
+.radar-rank li:last-child{border-bottom:0}
+.radar-rank li>b{flex:none;color:#263478;font-size:11px;white-space:nowrap}
+.rank-copy{display:flex;align-items:flex-start;gap:9px;min-width:0;flex:1}
+.rank-copy>div{min-width:0;flex:1}
+.rank-number{padding-top:1px;color:#929bb0;font-size:9px;font-weight:800;font-variant-numeric:tabular-nums}
+.rank-copy strong{display:block;max-width:100%;overflow:hidden;color:#343d67;font-size:11px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+.rank-copy strong a{color:inherit;text-decoration:none}.rank-copy strong a:hover{color:#4053d7;text-decoration:underline}
+.rank-copy small{display:block;margin-top:3px;overflow:hidden;color:#8992a7;font-size:9px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+.rank-track{height:3px;margin-top:7px;overflow:hidden;background:#edf0fa;border-radius:9px}.rank-track i{display:block;height:100%;background:linear-gradient(90deg,#4b5de0,#1cb6c4);border-radius:9px}
+.radar-empty-state,.radar-loading{padding:24px 12px;color:#8790a5;font-size:12px;text-align:center}
+.radar-method-note{margin:13px 3px 0;color:#838da3;font-size:10px;line-height:1.5}
+.weekly-section{margin-top:48px;border-top:1px solid #d4deee;padding-top:34px}
+.weekly-heading h2{color:#19245d;max-width:800px}
+.weekly-heading p{max-width:760px;font-size:15px}
+.week-navigation input{height:42px;border:1px solid #d6deed;border-radius:10px;padding:0 11px;background:#fff;color:#36416a;font:inherit}
+.weekly-primary-actions{margin-top:18px;padding:12px 0;border-bottom:1px solid #d8e1ef}
+.weekly-primary-actions button{height:42px;border-radius:10px;padding:0 16px;font-size:13px}
+main{max-width:1380px}
+#app:not(.hidden){display:flex;flex-direction:column}
+#app>.user-bar{order:0}
+#app>.hero{order:1}
+#app>#weekly{order:2}
+#app>.upload-panel{order:3}
+#app>.method-section{order:4}
+#app>#result{order:5}
+.app-nav{margin-bottom:18px}
+@media(max-width:1250px){.radar-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.radar-panels{grid-template-columns:repeat(2,minmax(0,1fr))}.radar-posts{grid-column:1/-1}}
+@media(max-width:680px){.trend-radar-dashboard{padding:14px;margin:16px 0 22px;border-radius:15px}.radar-summary{align-items:flex-start}.radar-summary h3{font-size:19px}.radar-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}.radar-kpis article{padding:13px}.radar-kpis strong{font-size:22px}.radar-kpis span{font-size:8px}.radar-panels{grid-template-columns:1fr;gap:9px}.radar-posts,.radar-audios,.radar-global-audios{grid-column:auto}.radar-panel{padding:15px 13px 5px}.radar-panel>header{min-height:40px}.radar-rank li{padding:10px 0}}
