@@ -526,6 +526,14 @@ def save_trend_result(*, user_id: str, market: str, target_date: str, run: dict[
     """Persist TikHub trend outputs and normalize the fields used by the radar."""
     ensure_tables()
     run_id = str(run.get("runId") or run.get("run_id") or "")
+    if not run_id:
+        raise RuntimeError("La respuesta de Monid no contiene runId.")
+    already_ingested = list(_run(
+        f"SELECT run_id FROM {_table('raw_monid_runs')} WHERE run_id = @run_id AND user_id = @user_id AND ingested_at IS NOT NULL LIMIT 1",
+        [("run_id", "STRING", run_id), ("user_id", "STRING", user_id)],
+    ))
+    if already_ingested:
+        return {"run_id": run_id, "status": run.get("status"), "already_ingested": True}
     output = run.get("output") if isinstance(run.get("output"), (dict, list)) else {}
     endpoint = str(run.get("endpoint") or "")
     loaded_at = datetime.now(timezone.utc).isoformat()
@@ -631,7 +639,22 @@ def save_trend_result(*, user_id: str, market: str, target_date: str, run: dict[
         "completed_at": run.get("completedAt"),
         "loaded_at": loaded_at,
     }])
-    return {"run_id": run_id, "endpoint": endpoint, "result_count": result_count, "status": run.get("status")}
+    _append_rows("raw_monid_runs", [{
+        "run_id": run_id,
+        "user_id": user_id,
+        "provider": run.get("provider", "tikhub"),
+        "endpoint": endpoint,
+        "status": run.get("status", "COMPLETED"),
+        "input_json": run.get("input", {}),
+        "output_json": output,
+        "cost_usd": _nested(run, "cost", "value") or _nested(run, "price", "amount", "value") or 0,
+        "result_count": run.get("resultCount") or run.get("result_count") or result_count,
+        "created_at": run.get("createdAt"),
+        "started_at": run.get("startedAt"),
+        "completed_at": run.get("completedAt"),
+        "ingested_at": loaded_at,
+    }])
+    return {"run_id": run_id, "endpoint": endpoint, "result_count": result_count, "status": run.get("status"), "already_ingested": False}
 
 
 def latest_trend_date(*, user_id: str, market: str) -> str | None:
