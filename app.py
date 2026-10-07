@@ -80,6 +80,7 @@ class WeeklyBQRequest(BaseModel):
 class WeeklyChatRequest(BaseModel):
     market: str = "CO"
     week_start: str
+    target_date: str = ""
     question: str
     messages: list[dict] = []
 
@@ -110,19 +111,21 @@ def trend_radar_run(request: TrendRadarRequest, authorization: str | None = Head
     if not bq.configured():
         raise HTTPException(503, "BigQuery no está configurado en el servidor.")
     try:
-        hashtag_run = start_provider_run(
+        runs = [start_provider_run(
             provider="tikhub",
             endpoint="/api/v1/tiktok/ads/get_trends_hashtag_list",
             input_body={"country_code": request.market.upper(), "time_range": 7, "page": 1, "limit": 100},
-        )
-        top_run = start_provider_run(
-            provider="tikhub",
-            endpoint="/api/v1/tiktok/ads/get_top_contents_list",
-            input_body={"country_code": request.market.upper(), "period_dimension": 3, "period_end_timestamp": int(datetime.fromisoformat(request.target_date + "T23:59:59").replace(tzinfo=timezone.utc).timestamp()), "order_by_metric": 2, "organic_only": True, "page": 1, "limit": 100, "content_label_ids": ""},
-        )
-        for run in (hashtag_run, top_run):
-            bq.save_trend_started(user_id=user.get("id"), market=request.market.upper(), target_date=request.target_date, run=run)
-        return {"target_date": request.target_date, "runs": [hashtag_run, top_run]}
+        )]
+        for scene in (0, 1):
+            runs.append(start_provider_run(
+                provider="tikhub",
+                endpoint="/api/v1/tiktok/app/v3/fetch_music_chart_list",
+                query_params={"scene": scene, "cursor": 0, "count": 50},
+            ))
+        for run in runs:
+            is_global_chart = str(run.get("endpoint") or "").endswith("fetch_music_chart_list")
+            bq.save_trend_started(user_id=user.get("id"), market="GLOBAL" if is_global_chart else request.market.upper(), target_date=request.target_date, run=run)
+        return {"target_date": request.target_date, "runs": runs}
     except MonidError as exc:
         raise HTTPException(502, str(exc))
     except Exception as exc:
@@ -130,16 +133,21 @@ def trend_radar_run(request: TrendRadarRequest, authorization: str | None = Head
         raise HTTPException(503, f"No se pudo iniciar el radar: {str(exc)[:240]}")
 
 @app.get("/api/trends/radar/run/{run_id}")
-def trend_radar_run_status(run_id: str, target_date: str, authorization: str | None = Header(default=None)):
+def trend_radar_run_status(run_id: str, target_date: str, scene: int | None = None, authorization: str | None = Header(default=None)):
     user = require_user(authorization)
     try:
         result = get_run(run_id)
         if str(result.get("status", "")).upper() == "COMPLETED":
             endpoint = str(result.get("endpoint") or "")
             if endpoint.endswith("tiktok-scraper"):
-                ingested = bq.save_monid_result(user_id=user.get("id"), run=result)
+                ingested = bq.save_monid_result(user_id=user.get("id"), run=result, target_date=target_date)
             else:
-                ingested = bq.save_trend_result(user_id=user.get("id"), market="CO", target_date=target_date, run=result)
+                is_global_chart = endpoint.endswith("fetch_music_chart_list")
+                if is_global_chart and scene in (0, 1):
+                    run_input = result.setdefault("input", {})
+                    if isinstance(run_input, dict):
+                        run_input["queryParams"] = {**(run_input.get("queryParams") or {}), "scene": scene}
+                ingested = bq.save_trend_result(user_id=user.get("id"), market="GLOBAL" if is_global_chart else "CO", target_date=target_date, run=result)
             return {"run": result, "ingested": ingested}
         return {"run": result, "ingested": None}
     except MonidError as exc:
@@ -159,7 +167,7 @@ def trend_radar_enrich(request: TrendRadarEnrichRequest, authorization: str | No
         run = start_provider_run(
             provider="apify",
             endpoint="/apidojo/tiktok-scraper",
-            input_body={"keywords": hashtags, "sortType": "DATE_POSTED", "location": request.market.upper(), "maxItems": 100, "includeSearchKeywords": True},
+            input_body={"keywords": hashtags, "sortType": "DATE_POSTED", "dateRange": "THIS_WEEK", "location": request.market.upper(), "maxItems": 100, "includeSearchKeywords": True},
         )
         bq.save_trend_started(user_id=user.get("id"), market=request.market.upper(), target_date=request.target_date, run=run)
         return run
@@ -355,8 +363,9 @@ def weekly_chat(request: WeeklyChatRequest, authorization: str | None = Header(d
         raise HTTPException(400, "Escribe una pregunta.")
     try:
         current_start = date.fromisoformat(request.week_start)
+        radar_date = date.fromisoformat(request.target_date) if request.target_date else current_start
     except ValueError:
-        raise HTTPException(400, "week_start debe tener formato YYYY-MM-DD.")
+        raise HTTPException(400, "week_start y target_date deben tener formato YYYY-MM-DD.")
     current_end = current_start + timedelta(days=6)
     previous_end = current_start - timedelta(days=1)
     previous_start = previous_end - timedelta(days=6)
@@ -401,7 +410,7 @@ def weekly_chat(request: WeeklyChatRequest, authorization: str | None = Header(d
                 previous_week_start=previous_start.isoformat(), previous_week_end=previous_end.isoformat(),
                 analysis=page,
             )
-        radar = bq.get_trend_radar(user_id=user.get("id"), market=market, target_date=current_start.isoformat())
+        radar = bq.get_trend_radar(user_id=user.get("id"), market=market, target_date=radar_date.isoformat())
         answer, error = ask_weekly_chat(
             question,
             {**page, "trend_radar": radar, "portafolio": BRANDS},
@@ -417,6 +426,7 @@ def weekly_chat(request: WeeklyChatRequest, authorization: str | None = Header(d
             "ranking": ranking,
             "visual": _chat_visual(chat_records),
             "week_start": current_start.isoformat(),
+            "target_date": radar_date.isoformat(),
             "market": market,
             "data_source": "BigQuery",
         }
