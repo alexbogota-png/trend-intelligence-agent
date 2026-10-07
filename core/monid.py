@@ -53,13 +53,13 @@ def start_run(*, keywords: list[str], market: str, sort_type: str, max_items: in
     )
 
 
-def start_provider_run(*, provider: str, endpoint: str, input_body: dict) -> dict:
+def start_provider_run(*, provider: str, endpoint: str, input_body: dict | None = None, query_params: dict | None = None) -> dict:
     body = {
         "provider": provider,
         "endpoint": endpoint,
         "input": {
-            "body": input_body,
-            "queryParams": {},
+            "body": input_body or {},
+            "queryParams": query_params or {},
             "pathParams": {},
         },
     }
