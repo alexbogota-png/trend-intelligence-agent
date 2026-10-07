@@ -212,6 +212,21 @@ def ensure_tables() -> None:
     )
     _run(
         f"""
+        CREATE TABLE IF NOT EXISTS {_table('trend_x_topics')} (
+          run_id STRING,
+          user_id STRING,
+          market STRING,
+          snapshot_date DATE,
+          rank_index INT64,
+          topic_name STRING,
+          topic_context STRING,
+          raw_json JSON,
+          loaded_at TIMESTAMP
+        )
+        """
+    )
+    _run(
+        f"""
         CREATE TABLE IF NOT EXISTS {_table('trend_posts')} (
           run_id STRING,
           user_id STRING,
@@ -625,6 +640,21 @@ def save_trend_result(*, user_id: str, market: str, target_date: str, run: dict[
         } for rank, sound in enumerate(sounds, start=1)]
         _append_rows("trend_sounds", sound_rows)
         result_count = len(sound_rows)
+    elif endpoint.endswith("/twitter/web/fetch_trending"):
+        items = _nested(output, "trends") or []
+        rows = [{
+            "run_id": run_id,
+            "user_id": user_id,
+            "market": market,
+            "snapshot_date": target_date,
+            "rank_index": rank,
+            "topic_name": str(item.get("name") or "").strip(),
+            "topic_context": str(item.get("context") or "").strip(),
+            "raw_json": item,
+            "loaded_at": loaded_at,
+        } for rank, item in enumerate(items, start=1) if isinstance(item, dict) and str(item.get("name") or "").strip()]
+        _append_rows("trend_x_topics", rows)
+        result_count = len(rows)
     _append_rows("trend_runs", [{
         "run_id": run_id,
         "user_id": user_id,
@@ -657,22 +687,24 @@ def save_trend_result(*, user_id: str, market: str, target_date: str, run: dict[
     return {"run_id": run_id, "endpoint": endpoint, "result_count": result_count, "status": run.get("status"), "already_ingested": False}
 
 
-def latest_trend_date(*, user_id: str, market: str) -> str | None:
+def latest_trend_date(*, user_id: str, market: str, platform: str = "tiktok") -> str | None:
     ensure_tables()
     rows = _run(
         f"""
         SELECT CAST(MAX(target_date) AS STRING) AS target_date
         FROM {_table('trend_runs')}
         WHERE user_id = @user_id AND market = @market AND status = 'COMPLETED'
+          AND ((@platform = 'x' AND endpoint LIKE '%/twitter/%')
+            OR (@platform = 'tiktok' AND endpoint LIKE '%/tiktok/%'))
         """,
-        [("user_id", "STRING", user_id), ("market", "STRING", market)],
+        [("user_id", "STRING", user_id), ("market", "STRING", market), ("platform", "STRING", platform)],
     )
     first = next(iter(rows), None)
     value = dict(first).get("target_date") if first else None
     return str(value) if value else None
 
 
-def get_trend_weeks(*, user_id: str, market: str) -> list[dict[str, Any]]:
+def get_trend_weeks(*, user_id: str, market: str, platform: str = "tiktok") -> list[dict[str, Any]]:
     """List weekly collection windows with the latest daily snapshot in each week."""
     ensure_tables()
     rows = _run(
@@ -683,16 +715,18 @@ def get_trend_weeks(*, user_id: str, market: str) -> list[dict[str, Any]]:
                COUNT(DISTINCT run_id) AS run_count
         FROM {_table('trend_runs')}
         WHERE user_id = @user_id AND market = @market AND status = 'COMPLETED'
+          AND ((@platform = 'x' AND endpoint LIKE '%/twitter/%')
+            OR (@platform = 'tiktok' AND endpoint LIKE '%/tiktok/%'))
         GROUP BY week_start
         ORDER BY week_start DESC
         LIMIT 52
         """,
-        [("user_id", "STRING", user_id), ("market", "STRING", market)],
+        [("user_id", "STRING", user_id), ("market", "STRING", market), ("platform", "STRING", platform)],
     )
     return [dict(row) for row in rows]
 
 
-def latest_trend_date_for_week(*, user_id: str, market: str, week_start: str) -> str | None:
+def latest_trend_date_for_week(*, user_id: str, market: str, week_start: str, platform: str = "tiktok") -> str | None:
     ensure_tables()
     rows = _run(
         f"""
@@ -700,9 +734,11 @@ def latest_trend_date_for_week(*, user_id: str, market: str, week_start: str) ->
         FROM {_table('trend_runs')}
         WHERE user_id = @user_id AND market = @market
           AND status = 'COMPLETED'
+          AND ((@platform = 'x' AND endpoint LIKE '%/twitter/%')
+            OR (@platform = 'tiktok' AND endpoint LIKE '%/tiktok/%'))
           AND target_date >= @week_start AND target_date < DATE_ADD(@week_start, INTERVAL 7 DAY)
         """,
-        [("user_id", "STRING", user_id), ("market", "STRING", market), ("week_start", "DATE", week_start)],
+        [("user_id", "STRING", user_id), ("market", "STRING", market), ("week_start", "DATE", week_start), ("platform", "STRING", platform)],
     )
     first = next(iter(rows), None)
     value = dict(first).get("target_date") if first else None
@@ -737,6 +773,48 @@ def get_trend_history(*, user_id: str, market: str, weeks: int = 12) -> list[dic
     allowed = set(week_keys)
     records = [row for row in records if str(row["week_start"]) in allowed]
     return sorted(records, key=lambda row: (str(row["week_start"]), -int(row.get("views") or 0)))
+
+
+def get_x_history(*, user_id: str, market: str, weeks: int = 12) -> list[dict[str, Any]]:
+    """Return weekly X topic observations; presence is not a volume metric."""
+    ensure_tables()
+    rows = _run(
+        f"""
+        SELECT CAST(DATE_TRUNC(snapshot_date, WEEK(MONDAY)) AS STRING) AS week_start,
+               topic_name, topic_context, rank_index,
+               ROW_NUMBER() OVER (
+                 PARTITION BY DATE_TRUNC(snapshot_date, WEEK(MONDAY)), topic_name
+                 ORDER BY snapshot_date DESC, loaded_at DESC
+               ) AS row_num
+        FROM {_table('trend_x_topics')}
+        WHERE user_id = @user_id AND market = @market
+          AND snapshot_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 52 WEEK)
+        """,
+        [("user_id", "STRING", user_id), ("market", "STRING", market)],
+    )
+    records = [dict(row) for row in rows if int(row.get("row_num") or 0) == 1]
+    week_keys = sorted({str(row["week_start"]) for row in records}, reverse=True)[:max(1, min(weeks, 52))]
+    allowed = set(week_keys)
+    return sorted(
+        [{key: value for key, value in row.items() if key != "row_num"} for row in records if str(row["week_start"]) in allowed],
+        key=lambda row: (str(row["week_start"]), int(row.get("rank_index") or 0)),
+    )
+
+
+def get_x_radar(*, user_id: str, market: str, target_date: str) -> dict[str, Any]:
+    ensure_tables()
+    rows = _run(
+        f"""
+        SELECT rank_index, topic_name, topic_context
+        FROM {_table('trend_x_topics')}
+        WHERE user_id = @user_id AND market = @market AND snapshot_date = @target_date
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY topic_name ORDER BY loaded_at DESC) = 1
+        ORDER BY rank_index ASC
+        LIMIT 100
+        """,
+        [("user_id", "STRING", user_id), ("market", "STRING", market), ("target_date", "DATE", target_date)],
+    )
+    return {"platform": "x", "target_date": target_date, "market": market, "topics": [dict(row) for row in rows]}
 
 
 def get_trend_radar(*, user_id: str, market: str, target_date: str) -> dict[str, Any]:
