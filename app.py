@@ -179,11 +179,29 @@ def trend_radar_enrich(request: TrendRadarEnrichRequest, authorization: str | No
         logger.exception("Trend radar enrichment start error")
         raise HTTPException(503, f"No se pudo enriquecer el radar: {str(exc)[:240]}")
 
-@app.get("/api/trends/radar")
-def trend_radar(market: str = "CO", target_date: str = "", authorization: str | None = Header(default=None)):
+@app.get("/api/trends/radar/weeks")
+def trend_radar_weeks(market: str = "CO", authorization: str | None = Header(default=None)):
     user = require_user(authorization)
     try:
-        target = target_date or bq.latest_trend_date(user_id=user.get("id"), market=market.upper()) or (date.today() - timedelta(days=1)).isoformat()
+        return bq.get_trend_weeks(user_id=user.get("id"), market=market.upper())
+    except Exception as exc:
+        logger.exception("Trend radar week list error")
+        raise HTTPException(503, f"No se pudieron leer las semanas: {str(exc)[:240]}")
+
+@app.get("/api/trends/radar/history")
+def trend_radar_history(market: str = "CO", weeks: int = 12, authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
+    try:
+        return bq.get_trend_history(user_id=user.get("id"), market=market.upper(), weeks=weeks)
+    except Exception as exc:
+        logger.exception("Trend radar history error")
+        raise HTTPException(503, f"No se pudo leer el histórico: {str(exc)[:240]}")
+
+@app.get("/api/trends/radar")
+def trend_radar(market: str = "CO", target_date: str = "", week_start: str = "", authorization: str | None = Header(default=None)):
+    user = require_user(authorization)
+    try:
+        target = (bq.latest_trend_date_for_week(user_id=user.get("id"), market=market.upper(), week_start=week_start) if week_start else None) or target_date or bq.latest_trend_date(user_id=user.get("id"), market=market.upper()) or (date.today() - timedelta(days=1)).isoformat()
         date.fromisoformat(target)
         result = bq.get_trend_radar(user_id=user.get("id"), market=market.upper(), target_date=target)
         result["latest_available_date"] = target
