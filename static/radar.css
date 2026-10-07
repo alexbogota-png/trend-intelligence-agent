@@ -64,3 +64,46 @@ main{max-width:1380px}
 @media(max-width:1250px){.radar-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.radar-panels{grid-template-columns:repeat(2,minmax(0,1fr))}.radar-posts{grid-column:1/-1}}
 @media(max-width:680px){.trend-radar-dashboard{padding:14px;margin:16px 0 22px;border-radius:15px}.radar-summary{align-items:flex-start}.radar-summary h3{font-size:19px}.radar-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}.radar-kpis article{padding:13px}.radar-kpis strong{font-size:22px}.radar-kpis span{font-size:8px}.radar-panels{grid-template-columns:1fr;gap:9px}.radar-posts,.radar-audios,.radar-global-audios{grid-column:auto}.radar-panel{padding:15px 13px 5px}.radar-panel>header{min-height:40px}.radar-rank li{padding:10px 0}}
 @media(max-width:680px){.weekly-heading{align-items:flex-start}.week-navigation{min-width:0;width:100%}.radar-evolution{padding:15px 12px 10px}.radar-history-count{font-size:9px}.trend-history-legend{gap:8px 12px}}
+
+/* Refuerzo posterior a las hojas existentes para aplicar el nuevo lenguaje visual del radar. */
+:root{--ink:#1d1d1f;--muted:#6e6e73;--line:#d2d2d7;--paper:#f5f5f7;--accent:#e8e8ed;--primary:#2457d6;--dark:#1d1d1f;--soft:#fbfbfd}
+body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:-.01em}
+main{max-width:1440px;padding:48px clamp(22px,4vw,64px) 88px}
+.hero{max-width:940px;margin:0 auto 64px;text-align:center;padding:44px 12px 22px}
+.hero h1{font-size:clamp(42px,6vw,76px);line-height:1.02;letter-spacing:-.065em;font-weight:700;margin:18px auto 16px;max-width:900px;color:var(--dark)}
+.hero p{max-width:700px;margin:0 auto;color:var(--muted);font-size:20px;line-height:1.45}
+.eyebrow,.panel-kicker,.story-kicker{color:#4b5563;font-size:10px;letter-spacing:.16em}
+.panel,.card,.upload-panel,.weekly-chat{background:#fff;border:1px solid #e5e5ea;border-radius:24px;box-shadow:0 12px 36px rgba(0,0,0,.045)}
+.weekly-section{margin-top:56px;border-top:0;padding-top:0}
+.weekly-heading{align-items:center;margin-bottom:20px}
+.weekly-heading h2{font-size:clamp(32px,4.4vw,54px);line-height:1.04;letter-spacing:-.055em;color:var(--dark);font-weight:700;margin:12px 0}
+.weekly-heading p{max-width:680px;font-size:17px;line-height:1.45;color:var(--muted)}
+.week-navigation{min-width:260px;color:var(--muted)}
+.week-navigation select,select,.weekly-chat input{border-color:#d2d2d7;border-radius:12px;background:#fff;color:var(--ink)}
+.weekly-primary-actions{border-color:#e5e5ea;padding:16px 0;margin-top:8px}
+button{background:var(--primary);border-radius:999px;transition:background .2s,transform .2s,box-shadow .2s}
+button:hover{background:#1745bb;box-shadow:0 5px 16px rgba(36,87,214,.18)}
+.trend-radar-dashboard{background:#fff;border:1px solid #e5e5ea;border-radius:24px;padding:clamp(18px,2.4vw,32px);box-shadow:0 12px 36px rgba(0,0,0,.045);color:var(--ink)}
+.radar-summary{border-color:#e5e5ea}
+.radar-summary h3,.radar-evolution h3,.radar-panel h4{color:var(--dark);letter-spacing:-.035em}
+.radar-eyebrow{color:#6e6e73;letter-spacing:.15em}
+.radar-kpis article,.radar-panel,.radar-evolution{border-color:#e5e5ea;border-radius:16px;box-shadow:none;background:#fff}
+.radar-kpis article{padding:18px}
+.radar-kpis span,.radar-kpis small,.radar-panel>header>small,.radar-rank li small{color:#6e6e73}
+.radar-kpis strong{color:var(--dark);font-variant-numeric:tabular-nums}
+.radar-rank li{border-color:#ededf0}
+.rank-copy strong{color:#2c2c30}
+.rank-copy small,.radar-method-note,.trend-history-note,.trend-history-empty{color:#6e6e73}
+.rank-track i{background:var(--primary)}
+.weekly-chat{padding:clamp(22px,3vw,36px);margin-top:32px}
+.weekly-chat h3{font-size:clamp(25px,3vw,34px);letter-spacing:-.045em;color:var(--dark)}
+.weekly-chat p{color:var(--muted)}
+.chat-live-label{background:#f5f5f7;color:#515154}
+.weekly-chat-message.user{background:#252528;box-shadow:none}
+.chat-compact .chat-central{background:#f5f5f7;border-color:#e5e5ea;border-left-color:var(--primary)}
+.chat-visual,.weekly-chat-answer .chat-insight-section:not(.chat-central){background:#fbfbfd;border-color:#e5e5ea}
+.chat-metric{border-color:#e5e5ea}
+.weekly-chat input:focus,select:focus{outline:3px solid rgba(36,87,214,.18);border-color:var(--primary)}
+.method-section h2{color:var(--dark);letter-spacing:-.045em}
+.method-grid article{background:#fff;border-color:#e5e5ea;border-radius:18px}
+@media(max-width:720px){main{padding:28px 16px 56px}.hero{padding:32px 2px 8px;margin-bottom:42px}.hero p{font-size:17px}.weekly-heading{gap:18px}.weekly-heading h2{font-size:36px}.weekly-heading p{font-size:15px}.week-navigation{min-width:0}.weekly-primary-actions{align-items:start}}
