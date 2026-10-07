@@ -113,3 +113,9 @@ button:hover{background:#1745bb;box-shadow:0 5px 16px rgba(36,87,214,.18)}
 @keyframes radar-loading-spin{to{transform:rotate(360deg)}}
 @keyframes radar-loading-sweep{0%,100%{background-position:100% 0}50%{background-position:0 0}}
 @media(prefers-reduced-motion:reduce){.radar-loading::before,.radar-loading::after{animation:none}}
+.radar-filters{display:flex;align-items:end;gap:12px}
+.radar-filters .week-navigation{min-width:205px}
+.radar-x-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+.radar-x-panels{grid-template-columns:minmax(0,1.5fr) minmax(250px,.8fr)}
+@media(max-width:900px){.radar-filters{display:grid;grid-template-columns:1fr 1fr}.radar-filters .week-navigation{min-width:0}}
+@media(max-width:680px){.radar-filters,.radar-x-kpis,.radar-x-panels{grid-template-columns:1fr}.radar-filters{width:100%}}

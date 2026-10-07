@@ -42,7 +42,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     input.value='';
     try{
       const token=window.getAccessToken?.()||'';
-      const response=await fetch('/api/weekly/chat',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({market:'CO',week_start:weekStart,target_date:targetDate,question,messages:weeklyConversation})});
+      const platform=document.querySelector('#radar-platform')?.value||'tiktok';
+      const response=await fetch('/api/weekly/chat',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({market:'CO',week_start:weekStart,target_date:targetDate,platform,question,messages:weeklyConversation})});
       const text=await response.text();
       let data;try{data=JSON.parse(text)}catch{throw Error(`Error del servidor (${response.status}): ${text.slice(0,240)}`)}
       if(!response.ok)throw Error(data.detail||'No fue posible responder la pregunta.');
@@ -52,6 +53,9 @@ document.addEventListener('DOMContentLoaded',()=>{
   };
   const reset=()=>{weeklyConversation.length=0;renderWeeklyChat()};
   document.querySelector('#radar-week')?.addEventListener('change',reset);
+  const platformSelect=document.querySelector('#radar-platform');
+  const updateChatContext=()=>{const label=document.querySelector('.chat-live-label');if(label)label.textContent=`Contexto: ${platformSelect?.value==='x'?'X · Colombia':'TikTok · Colombia'}`};
+  updateChatContext();platformSelect?.addEventListener('change',()=>{reset();updateChatContext()});
   document.querySelector('#previous-week')?.addEventListener('click',reset);
   document.querySelector('#next-week')?.addEventListener('click',reset);
 });
