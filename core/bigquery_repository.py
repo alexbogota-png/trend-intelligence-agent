@@ -351,7 +351,7 @@ def connection_status() -> dict[str, Any]:
     return status
 
 
-def save_monid_result(*, user_id: str, run: dict[str, Any]) -> dict[str, Any]:
+def save_monid_result(*, user_id: str, run: dict[str, Any], target_date: str | None = None) -> dict[str, Any]:
     """Persist one completed Monid run and its normalized TikTok records."""
     ensure_tables()
     run_id = str(run.get("runId") or run.get("run_id") or "")
@@ -383,32 +383,70 @@ def save_monid_result(*, user_id: str, run: dict[str, Any]) -> dict[str, Any]:
     }])
 
     mention_rows = []
+    post_rows = []
+    sound_groups: dict[str, dict[str, Any]] = {}
     body = ((run.get("input") or {}).get("body") or {})
-    market = body.get("location", "")
+    market = str(body.get("location") or "CO").upper()
+    snapshot_date = target_date or datetime.now(timezone.utc).date().isoformat()
+    loaded_at = datetime.now(timezone.utc).isoformat()
     for item in output:
         channel = item.get("channel") if isinstance(item.get("channel"), dict) else {}
+        post_id = str(item.get("id") or item.get("postId") or "")
+        title = item.get("title") or item.get("text") or ""
+        views = _int_value(item.get("views") or item.get("playCount"))
+        likes = _int_value(item.get("likes") or item.get("diggCount"))
+        comments = _int_value(item.get("comments") or item.get("commentCount"))
+        shares = _int_value(item.get("shares") or item.get("shareCount"))
+        sound = item.get("song") or item.get("music") or item.get("musicMeta") or {}
+        if not isinstance(sound, dict):
+            sound = {}
         mention_rows.append({
-            "mention_id": str(item.get("id") or item.get("postId") or ""),
+            "mention_id": post_id,
             "run_id": run_id,
             "user_id": user_id,
             "market": market,
             "keyword": item.get("keyword") or ", ".join(body.get("keywords") or []),
             "published_at": _published_timestamp(item),
-            "title": item.get("title") or item.get("text") or "",
+            "title": title,
             "author": channel.get("username") or channel.get("name") or "",
             "url": item.get("postPage") or item.get("url") or "",
-            "views": item.get("views") or 0,
-            "likes": item.get("likes") or 0,
-            "comments": item.get("comments") or 0,
-            "shares": item.get("shares") or 0,
+            "views": views,
+            "likes": likes,
+            "comments": comments,
+            "shares": shares,
             "bookmarks": item.get("bookmarks") or 0,
             "hashtags": item.get("hashtags") or [],
             "raw_json": item,
-            "loaded_at": datetime.now(timezone.utc).isoformat(),
+            "loaded_at": loaded_at,
         })
+        if post_id:
+            post_rows.append({
+                "run_id": run_id, "user_id": user_id, "market": market,
+                "snapshot_date": snapshot_date, "post_id": post_id,
+                "published_at": _published_timestamp(item), "title": title,
+                "author": channel.get("username") or channel.get("name") or "",
+                "url": item.get("postPage") or item.get("url") or "",
+                "views": views, "likes": likes, "comments": comments, "shares": shares,
+                "engagement_rate": ((likes + comments + shares) / views) if views else 0.0,
+                "hashtags": item.get("hashtags") or [], "sound": sound,
+                "raw_json": item, "loaded_at": loaded_at,
+            })
+        sound_id = str(sound.get("id") or sound.get("musicId") or "")
+        if sound_id:
+            group = sound_groups.setdefault(sound_id, {
+                "run_id": run_id, "user_id": user_id, "market": market,
+                "snapshot_date": snapshot_date, "sound_id": sound_id,
+                "sound_name": str(sound.get("title") or sound.get("name") or "Audio sin título"),
+                "sound_author": str(sound.get("artist") or sound.get("authorName") or sound.get("author") or ""),
+                "video_count": 0, "views": 0, "raw_json": sound, "loaded_at": loaded_at,
+            })
+            group["video_count"] += 1
+            group["views"] += views
     if mention_rows:
         _append_rows("mentions", mention_rows)
-    return {"run_id": run_id, "status": run.get("status"), "already_ingested": False, "result_count": len(mention_rows)}
+    _append_rows("trend_posts", post_rows)
+    _append_rows("trend_sounds", list(sound_groups.values()))
+    return {"run_id": run_id, "status": run.get("status"), "already_ingested": False, "result_count": len(mention_rows), "posts_saved": len(post_rows), "sounds_saved": len(sound_groups)}
 
 
 def list_mentions(*, market: str, week_start: str, week_end: str, previous_week_start: str, previous_week_end: str) -> list[dict[str, Any]]:
@@ -461,11 +499,34 @@ def _int_value(value: Any) -> int:
         return 0
 
 
+def _music_records(value: Any) -> list[dict[str, Any]]:
+    """Find music objects in documented chart wrappers without assuming one response envelope."""
+    found: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            marker = id(node)
+            if marker in seen:
+                return
+            seen.add(marker)
+            identity = node.get("id") or node.get("musicId") or node.get("music_id")
+            title = node.get("title") or node.get("name")
+            if identity and title:
+                found.append(node)
+            for child in node.values():
+                visit(child)
+        elif isinstance(node, list):
+            for child in node:
+                visit(child)
+    visit(value)
+    return found
+
+
 def save_trend_result(*, user_id: str, market: str, target_date: str, run: dict[str, Any]) -> dict[str, Any]:
     """Persist TikHub trend outputs and normalize the fields used by the radar."""
     ensure_tables()
     run_id = str(run.get("runId") or run.get("run_id") or "")
-    output = run.get("output") if isinstance(run.get("output"), dict) else {}
+    output = run.get("output") if isinstance(run.get("output"), (dict, list)) else {}
     endpoint = str(run.get("endpoint") or "")
     loaded_at = datetime.now(timezone.utc).isoformat()
     result_count = 0
@@ -537,6 +598,25 @@ def save_trend_result(*, user_id: str, market: str, target_date: str, run: dict[
         _append_rows("trend_posts", rows)
         _append_rows("trend_sounds", sound_rows)
         result_count = len(rows)
+    elif endpoint.endswith("fetch_music_chart_list"):
+        query = ((run.get("input") or {}).get("queryParams") or {})
+        scene = _int_value(query.get("scene"))
+        sounds = _music_records(output)
+        sound_rows = [{
+            "run_id": run_id,
+            "user_id": user_id,
+            "market": "GLOBAL",
+            "snapshot_date": target_date,
+            "sound_id": str(sound.get("id") or sound.get("musicId") or sound.get("music_id") or ""),
+            "sound_name": str(sound.get("title") or sound.get("name") or "Audio sin título"),
+            "sound_author": str(sound.get("artist") or sound.get("authorName") or sound.get("author") or ""),
+            "video_count": _int_value(sound.get("videoCount") or sound.get("video_count") or sound.get("useCount")),
+            "views": _int_value(sound.get("playCount") or sound.get("views")),
+            "raw_json": {**sound, "chart_scene": scene, "chart_scope": "global", "chart_rank": rank},
+            "loaded_at": loaded_at,
+        } for rank, sound in enumerate(sounds, start=1)]
+        _append_rows("trend_sounds", sound_rows)
+        result_count = len(sound_rows)
     _append_rows("trend_runs", [{
         "run_id": run_id,
         "user_id": user_id,
@@ -620,7 +700,20 @@ def get_trend_radar(*, user_id: str, market: str, target_date: str) -> dict[str,
         """,
         [("user_id", "STRING", user_id), ("market", "STRING", market), ("target_date", "DATE", target_date)],
     )
-    return {"target_date": target_date, "market": market, "hashtags": [dict(row) for row in hashtag_rows], "posts": combined_posts, "sounds": [dict(row) for row in sound_rows]}
+    global_sound_rows = _run(
+        f"""
+        SELECT sound_id, sound_name, sound_author, video_count, views,
+               SAFE_CAST(JSON_VALUE(raw_json, '$.chart_scene') AS INT64) AS chart_scene,
+               SAFE_CAST(JSON_VALUE(raw_json, '$.chart_rank') AS INT64) AS chart_rank
+        FROM {_table('trend_sounds')}
+        WHERE user_id = @user_id AND market = 'GLOBAL' AND snapshot_date = @target_date
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY sound_id, JSON_VALUE(raw_json, '$.chart_scene') ORDER BY loaded_at DESC) = 1
+        ORDER BY SAFE_CAST(JSON_VALUE(raw_json, '$.chart_scene') AS INT64), SAFE_CAST(JSON_VALUE(raw_json, '$.chart_rank') AS INT64)
+        LIMIT 50
+        """,
+        [("user_id", "STRING", user_id), ("target_date", "DATE", target_date)],
+    )
+    return {"target_date": target_date, "market": market, "hashtags": [dict(row) for row in hashtag_rows], "posts": combined_posts, "sounds": [dict(row) for row in sound_rows], "global_sounds": [dict(row) for row in global_sound_rows]}
 
 
 def get_weekly_analysis(*, user_id: str, market: str, week_start: str, week_end: str) -> dict[str, Any] | None:
