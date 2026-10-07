@@ -640,13 +640,80 @@ def latest_trend_date(*, user_id: str, market: str) -> str | None:
         f"""
         SELECT CAST(MAX(target_date) AS STRING) AS target_date
         FROM {_table('trend_runs')}
-        WHERE user_id = @user_id AND market = @market
+        WHERE user_id = @user_id AND market = @market AND status = 'COMPLETED'
         """,
         [("user_id", "STRING", user_id), ("market", "STRING", market)],
     )
     first = next(iter(rows), None)
     value = dict(first).get("target_date") if first else None
     return str(value) if value else None
+
+
+def get_trend_weeks(*, user_id: str, market: str) -> list[dict[str, Any]]:
+    """List weekly collection windows with the latest daily snapshot in each week."""
+    ensure_tables()
+    rows = _run(
+        f"""
+        SELECT CAST(DATE_TRUNC(target_date, WEEK(MONDAY)) AS STRING) AS week_start,
+               CAST(MAX(target_date) AS STRING) AS latest_date,
+               COUNT(DISTINCT target_date) AS snapshot_days,
+               COUNT(DISTINCT run_id) AS run_count
+        FROM {_table('trend_runs')}
+        WHERE user_id = @user_id AND market = @market AND status = 'COMPLETED'
+        GROUP BY week_start
+        ORDER BY week_start DESC
+        LIMIT 52
+        """,
+        [("user_id", "STRING", user_id), ("market", "STRING", market)],
+    )
+    return [dict(row) for row in rows]
+
+
+def latest_trend_date_for_week(*, user_id: str, market: str, week_start: str) -> str | None:
+    ensure_tables()
+    rows = _run(
+        f"""
+        SELECT CAST(MAX(target_date) AS STRING) AS target_date
+        FROM {_table('trend_runs')}
+        WHERE user_id = @user_id AND market = @market
+          AND status = 'COMPLETED'
+          AND target_date >= @week_start AND target_date < DATE_ADD(@week_start, INTERVAL 7 DAY)
+        """,
+        [("user_id", "STRING", user_id), ("market", "STRING", market), ("week_start", "DATE", week_start)],
+    )
+    first = next(iter(rows), None)
+    value = dict(first).get("target_date") if first else None
+    return str(value) if value else None
+
+
+def get_trend_history(*, user_id: str, market: str, weeks: int = 12) -> list[dict[str, Any]]:
+    """Use the last observation per hashtag in each week; absence is not treated as zero."""
+    ensure_tables()
+    rows = _run(
+        f"""
+        WITH weekly AS (
+          SELECT CAST(DATE_TRUNC(snapshot_date, WEEK(MONDAY)) AS STRING) AS week_start,
+                 hashtag_id, hashtag_name, publish_count, views,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY DATE_TRUNC(snapshot_date, WEEK(MONDAY)), COALESCE(NULLIF(hashtag_id, ''), hashtag_name)
+                   ORDER BY snapshot_date DESC, loaded_at DESC
+                 ) AS row_num
+          FROM {_table('trend_hashtags')}
+          WHERE user_id = @user_id AND market = @market
+            AND snapshot_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 52 WEEK)
+        )
+        SELECT week_start, hashtag_id, hashtag_name, publish_count, views
+        FROM weekly
+        WHERE row_num = 1
+        ORDER BY week_start DESC, views DESC
+        """,
+        [("user_id", "STRING", user_id), ("market", "STRING", market)],
+    )
+    records = [dict(row) for row in rows]
+    week_keys = sorted({str(row["week_start"]) for row in records}, reverse=True)[:max(1, min(weeks, 52))]
+    allowed = set(week_keys)
+    records = [row for row in records if str(row["week_start"]) in allowed]
+    return sorted(records, key=lambda row: (str(row["week_start"]), -int(row.get("views") or 0)))
 
 
 def get_trend_radar(*, user_id: str, market: str, target_date: str) -> dict[str, Any]:
