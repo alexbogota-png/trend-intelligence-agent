@@ -81,12 +81,14 @@ class WeeklyChatRequest(BaseModel):
     market: str = "CO"
     week_start: str
     target_date: str = ""
+    platform: str = "tiktok"
     question: str
     messages: list[dict] = []
 
 class TrendRadarRequest(BaseModel):
     market: str = "CO"
     target_date: str
+    platform: str = "tiktok"
 
 class TrendRadarEnrichRequest(BaseModel):
     market: str = "CO"
@@ -101,9 +103,17 @@ def _mention_date(value: object) -> date | None:
     except ValueError:
         return None
 
+
+def _radar_platform(value: str) -> str:
+    platform = str(value or "tiktok").strip().lower()
+    if platform not in {"tiktok", "x"}:
+        raise HTTPException(400, "platform debe ser 'tiktok' o 'x'.")
+    return platform
+
 @app.post("/api/trends/radar/run")
 def trend_radar_run(request: TrendRadarRequest, authorization: str | None = Header(default=None)):
     user = require_user(authorization)
+    platform = _radar_platform(request.platform)
     try:
         date.fromisoformat(request.target_date)
     except ValueError:
@@ -111,6 +121,16 @@ def trend_radar_run(request: TrendRadarRequest, authorization: str | None = Head
     if not bq.configured():
         raise HTTPException(503, "BigQuery no está configurado en el servidor.")
     try:
+        if platform == "x":
+            if request.market.upper() != "CO":
+                raise HTTPException(400, "La consulta de X disponible está configurada para Colombia (CO).")
+            run = start_provider_run(
+                provider="tikhub",
+                endpoint="/api/v1/twitter/web/fetch_trending",
+                query_params={"country": "Colombia"},
+            )
+            bq.save_trend_started(user_id=user.get("id"), market=request.market.upper(), target_date=request.target_date, run=run)
+            return {"target_date": request.target_date, "platform": platform, "runs": [run]}
         runs = [start_provider_run(
             provider="tikhub",
             endpoint="/api/v1/tiktok/ads/get_trends_hashtag_list",
@@ -126,6 +146,8 @@ def trend_radar_run(request: TrendRadarRequest, authorization: str | None = Head
             is_global_chart = str(run.get("endpoint") or "").endswith("fetch_music_chart_list")
             bq.save_trend_started(user_id=user.get("id"), market="GLOBAL" if is_global_chart else request.market.upper(), target_date=request.target_date, run=run)
         return {"target_date": request.target_date, "runs": runs}
+    except HTTPException:
+        raise
     except MonidError as exc:
         raise HTTPException(502, str(exc))
     except Exception as exc:
@@ -180,34 +202,45 @@ def trend_radar_enrich(request: TrendRadarEnrichRequest, authorization: str | No
         raise HTTPException(503, f"No se pudo enriquecer el radar: {str(exc)[:240]}")
 
 @app.get("/api/trends/radar/weeks")
-def trend_radar_weeks(market: str = "CO", authorization: str | None = Header(default=None)):
+def trend_radar_weeks(market: str = "CO", platform: str = "tiktok", authorization: str | None = Header(default=None)):
     user = require_user(authorization)
     try:
-        return bq.get_trend_weeks(user_id=user.get("id"), market=market.upper())
+        platform = _radar_platform(platform)
+        return bq.get_trend_weeks(user_id=user.get("id"), market=market.upper(), platform=platform)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Trend radar week list error")
         raise HTTPException(503, f"No se pudieron leer las semanas: {str(exc)[:240]}")
 
 @app.get("/api/trends/radar/history")
-def trend_radar_history(market: str = "CO", weeks: int = 12, authorization: str | None = Header(default=None)):
+def trend_radar_history(market: str = "CO", weeks: int = 12, platform: str = "tiktok", authorization: str | None = Header(default=None)):
     user = require_user(authorization)
     try:
+        platform = _radar_platform(platform)
+        if platform == "x":
+            return bq.get_x_history(user_id=user.get("id"), market=market.upper(), weeks=weeks)
         return bq.get_trend_history(user_id=user.get("id"), market=market.upper(), weeks=weeks)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Trend radar history error")
         raise HTTPException(503, f"No se pudo leer el histórico: {str(exc)[:240]}")
 
 @app.get("/api/trends/radar")
-def trend_radar(market: str = "CO", target_date: str = "", week_start: str = "", authorization: str | None = Header(default=None)):
+def trend_radar(market: str = "CO", target_date: str = "", week_start: str = "", platform: str = "tiktok", authorization: str | None = Header(default=None)):
     user = require_user(authorization)
     try:
-        target = (bq.latest_trend_date_for_week(user_id=user.get("id"), market=market.upper(), week_start=week_start) if week_start else None) or target_date or bq.latest_trend_date(user_id=user.get("id"), market=market.upper()) or (date.today() - timedelta(days=1)).isoformat()
+        platform = _radar_platform(platform)
+        target = (bq.latest_trend_date_for_week(user_id=user.get("id"), market=market.upper(), week_start=week_start, platform=platform) if week_start else None) or target_date or bq.latest_trend_date(user_id=user.get("id"), market=market.upper(), platform=platform) or (date.today() - timedelta(days=1)).isoformat()
         date.fromisoformat(target)
-        result = bq.get_trend_radar(user_id=user.get("id"), market=market.upper(), target_date=target)
+        result = bq.get_x_radar(user_id=user.get("id"), market=market.upper(), target_date=target) if platform == "x" else bq.get_trend_radar(user_id=user.get("id"), market=market.upper(), target_date=target)
         result["latest_available_date"] = target
         return result
     except ValueError:
         raise HTTPException(400, "target_date debe tener formato YYYY-MM-DD.")
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Trend radar read error")
         raise HTTPException(503, f"No se pudo leer el radar: {str(exc)[:240]}")
@@ -391,6 +424,44 @@ def weekly_chat(request: WeeklyChatRequest, authorization: str | None = Header(d
         raise HTTPException(503, "BigQuery no está configurado en el servidor.")
     try:
         market = request.market.upper()
+        platform = _radar_platform(request.platform)
+        if platform == "x":
+            radar = bq.get_x_radar(user_id=user.get("id"), market=market, target_date=radar_date.isoformat())
+            topics = radar.get("topics") or []
+            if not topics:
+                raise HTTPException(404, "No hay tendencias de X guardadas para la semana seleccionada.")
+            evidence = [{
+                "published_at": radar_date.isoformat(),
+                "title": item.get("topic_name", ""),
+                "keyword": item.get("topic_context", "Tendencia reportada por X"),
+                "author": "X Trends · Colombia",
+                "views": None,
+                "likes": None,
+                "comments": None,
+            } for item in topics]
+            page = {
+                "title": "Tendencias de X · Colombia",
+                "market": market,
+                "period": {"week_start": current_start.isoformat(), "week_end": current_end.isoformat()},
+                "data_source": "BigQuery",
+                "data_limitations": "La fuente reporta temas en tendencia, pero no incluye volumen de publicaciones, impresiones, vistas ni interacciones.",
+                "trend_radar": radar,
+                "portafolio": BRANDS,
+            }
+            answer, error = ask_weekly_chat(question, page, evidence, request.messages)
+            if error:
+                raise HTTPException(503, f"No se pudo consultar el cerebro analítico: {error[:240]}")
+            return {
+                "answer": _chat_answer_text(answer),
+                "structured_answer": answer,
+                "ranking": [],
+                "visual": {"title": "Evidencia de X", "metrics": [{"label": "Temas reportados", "value": len(topics)}], "bars": [], "note": "No equivale a menciones ni a volumen de publicaciones."},
+                "week_start": current_start.isoformat(),
+                "target_date": radar_date.isoformat(),
+                "market": market,
+                "platform": platform,
+                "data_source": "BigQuery",
+            }
         page = bq.get_weekly_analysis(
             user_id=user.get("id"), market=market,
             week_start=current_start.isoformat(), week_end=current_end.isoformat(),
