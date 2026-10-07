@@ -33,14 +33,16 @@ document.addEventListener('DOMContentLoaded',()=>{
   form.onsubmit=async event=>{
     event.preventDefault();
     const question=input.value.trim();
-    const weekStart=document.querySelector('#week-start')?.value;
-    if(!question||!weekStart)return;
+    const selectedWeek=document.querySelector('#radar-week');
+    const weekStart=selectedWeek?.value;
+    const targetDate=selectedWeek?.selectedOptions[0]?.dataset.date;
+    if(!question||!weekStart||!targetDate)return;
     weeklyConversation.push({role:'user',content:question});
     renderWeeklyChat();
     input.value='';
     try{
       const token=window.getAccessToken?.()||'';
-      const response=await fetch('/api/weekly/chat',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({market:'CO',week_start:weekStart,question,messages:weeklyConversation})});
+      const response=await fetch('/api/weekly/chat',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({market:'CO',week_start:weekStart,target_date:targetDate,question,messages:weeklyConversation})});
       const text=await response.text();
       let data;try{data=JSON.parse(text)}catch{throw Error(`Error del servidor (${response.status}): ${text.slice(0,240)}`)}
       if(!response.ok)throw Error(data.detail||'No fue posible responder la pregunta.');
@@ -49,7 +51,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     renderWeeklyChat();
   };
   const reset=()=>{weeklyConversation.length=0;renderWeeklyChat()};
-  document.querySelector('#week-start')?.addEventListener('change',reset);
+  document.querySelector('#radar-week')?.addEventListener('change',reset);
   document.querySelector('#previous-week')?.addEventListener('click',reset);
   document.querySelector('#next-week')?.addEventListener('click',reset);
 });

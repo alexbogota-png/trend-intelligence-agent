@@ -31,7 +31,25 @@
 .weekly-section{margin-top:48px;border-top:1px solid #d4deee;padding-top:34px}
 .weekly-heading h2{color:#19245d;max-width:800px}
 .weekly-heading p{max-width:760px;font-size:15px}
-.week-navigation input{height:42px;border:1px solid #d6deed;border-radius:10px;padding:0 11px;background:#fff;color:#36416a;font:inherit}
+.week-navigation{display:flex;flex-direction:column;gap:6px;min-width:220px;color:#687493;font-size:11px;font-weight:700}
+.week-navigation select{height:42px;border:1px solid #d6deed;border-radius:10px;padding:0 11px;background:#fff;color:#36416a;font:inherit}
+.radar-evolution{margin:0 0 18px;padding:19px 20px 12px;background:#fff;border:1px solid #e2e8f3;border-radius:15px}
+.radar-evolution>header{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
+.radar-evolution h3{margin:5px 0;color:#20285c;font-size:18px}
+.radar-evolution header p{margin:0;color:#7c87a1;font-size:11px}
+.radar-history-count{padding:7px 10px;border-radius:99px;background:#f1f4fc;color:#697493;font-size:10px;white-space:nowrap}
+.trend-history-svg{display:block;width:100%;height:auto;max-height:280px;margin-top:12px;overflow:visible}
+.trend-chart-grid{stroke:#e9edf5;stroke-width:1}
+.trend-chart-axis{fill:#8c95a9;font:10px sans-serif}
+.trend-chart-line{stroke-width:2.4;stroke-linecap:round}
+.trend-chart-dot{stroke:#fff;stroke-width:2}
+.trend-history-legend{display:flex;flex-wrap:wrap;gap:9px 17px;margin:6px 0 0}
+.trend-history-legend span{display:grid;grid-template-columns:9px auto;gap:2px 7px;align-items:center;font-size:10px}
+.trend-history-legend i{grid-row:span 2;width:8px;height:8px;border-radius:50%;background:var(--trend-color)}
+.trend-history-legend b{color:#344064}
+.trend-history-legend small{grid-column:2;color:#7f899f}
+.trend-history-note,.trend-history-empty{margin:11px 0 0;color:#808aa0;font-size:10px;line-height:1.5}
+.trend-history-empty{padding:30px 12px;text-align:center;background:#f8faff;border-radius:10px}
 .weekly-primary-actions{margin-top:18px;padding:12px 0;border-bottom:1px solid #d8e1ef}
 .weekly-primary-actions button{height:42px;border-radius:10px;padding:0 16px;font-size:13px}
 main{max-width:1380px}
@@ -45,3 +63,4 @@ main{max-width:1380px}
 .app-nav{margin-bottom:18px}
 @media(max-width:1250px){.radar-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.radar-panels{grid-template-columns:repeat(2,minmax(0,1fr))}.radar-posts{grid-column:1/-1}}
 @media(max-width:680px){.trend-radar-dashboard{padding:14px;margin:16px 0 22px;border-radius:15px}.radar-summary{align-items:flex-start}.radar-summary h3{font-size:19px}.radar-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}.radar-kpis article{padding:13px}.radar-kpis strong{font-size:22px}.radar-kpis span{font-size:8px}.radar-panels{grid-template-columns:1fr;gap:9px}.radar-posts,.radar-audios,.radar-global-audios{grid-column:auto}.radar-panel{padding:15px 13px 5px}.radar-panel>header{min-height:40px}.radar-rank li{padding:10px 0}}
+@media(max-width:680px){.weekly-heading{align-items:flex-start}.week-navigation{min-width:0;width:100%}.radar-evolution{padding:15px 12px 10px}.radar-history-count{font-size:9px}.trend-history-legend{gap:8px 12px}}
