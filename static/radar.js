@@ -6,6 +6,11 @@ const radarPostTitle=row=>{const title=radarEscape(row.title||'Publicación sin 
 let radarHistory=[];
 let radarWeeks=[];
 let radarPlatform='tiktok';
+const radarCache=new Map();
+const RADAR_TTL_MS=60_000;
+const RADAR_HISTORY_TTL_MS=5*60_000;
+const RADAR_WEEKS_TTL_MS=5*60_000;
+let radarLoadSequence=0;
 function radarRank(rows,label,value,detail,format=radarNumber){
   if(!rows.length)return '<div class="radar-empty-state">Todavía no hay señales guardadas para este corte.</div>';
   const max=Math.max(1,...rows.map(value));
@@ -80,29 +85,48 @@ function renderRadar(data){
 }
 function setStatus(message){const status=document.querySelector('#weekly-status');if(status)status.textContent=message}
 async function loadWeeks(platform=radarPlatform){
+  const data=await fetchRadarWeeks(platform);renderRadarWeeks(data,platform);return data;
+}
+async function fetchRadarWeeks(platform){
   const response=await fetch(`/api/trends/radar/weeks?market=CO&platform=${encodeURIComponent(platform)}`,{headers:authHeaders()}),data=await response.json();if(!response.ok)throw Error(data.detail||'No se pudieron consultar las semanas.');
+  radarCache.set(`weeks:${platform}`,{data,savedAt:Date.now()});return data;
+}
+function renderRadarWeeks(data,platform){
+  if(platform!==radarPlatform)return;
   radarWeeks=data;const select=document.querySelector('#radar-week');if(!select)return;
   const previous=select.value;select.innerHTML='<option value="">Última semana disponible</option>'+data.map(item=>{const start=new Date(`${item.week_start}T12:00:00`),end=new Date(start);end.setDate(end.getDate()+6);const fmt=new Intl.DateTimeFormat('es-CO',{day:'2-digit',month:'short'});return `<option value="${radarEscape(item.week_start)}" data-date="${radarEscape(item.latest_date)}">${fmt.format(start)} – ${fmt.format(end)} · ${item.snapshot_days} ${item.snapshot_days===1?'día':'días'} con captura</option>`}).join('');
   if(previous&&[...select.options].some(option=>option.value===previous))select.value=previous;
 }
+function cachedRadarValue(key,ttl){const value=radarCache.get(key);return value?{data:value.data,fresh:Date.now()-value.savedAt<ttl}:null}
+function invalidateRadarCache(platform){for(const key of radarCache.keys())if(key.endsWith(`:${platform}`)||key.startsWith(`${platform}:`))radarCache.delete(key)}
 async function loadRadar(weekStart='',platform=null){
   const root=document.querySelector('#trend-radar-dashboard');if(!root)return;
   radarPlatform=platform||document.querySelector('#radar-platform')?.value||'tiktok';
-  if(!root.dataset.loaded)root.innerHTML='<div class="radar-loading" role="status" aria-live="polite">Consultando señales guardadas en BigQuery…</div>';
+  const requestId=++radarLoadSequence,currentPlatform=radarPlatform;
   try{
-    setStatus('Actualizando datos guardados…');
     const selected=weekStart||document.querySelector('#radar-week')?.value||'';
-    const [radarResponse,historyResponse]=await Promise.all([
-      fetch(`/api/trends/radar?market=CO&platform=${encodeURIComponent(radarPlatform)}${selected?`&week_start=${encodeURIComponent(selected)}`:''}`,{headers:authHeaders()}),
-      fetch(`/api/trends/radar/history?market=CO&weeks=12&platform=${encodeURIComponent(radarPlatform)}`,{headers:authHeaders()})
+    const radarKey=`${currentPlatform}:${selected||'latest'}`,historyKey=`history:${currentPlatform}`,weeksKey=`weeks:${currentPlatform}`;
+    const cachedRadar=cachedRadarValue(radarKey,RADAR_TTL_MS),cachedHistory=cachedRadarValue(historyKey,RADAR_HISTORY_TTL_MS),cachedWeeks=cachedRadarValue(weeksKey,RADAR_WEEKS_TTL_MS);
+    const hasCachedView=Boolean(cachedRadar&&cachedHistory&&cachedWeeks);
+    if(hasCachedView){
+      radarHistory=cachedHistory.data;radarWeeks=cachedWeeks.data;renderRadarWeeks(radarWeeks,currentPlatform);root.dataset.loaded='true';root.dataset.platform=currentPlatform;renderRadar(cachedRadar.data);
+      if(cachedRadar.fresh&&cachedHistory.fresh&&cachedWeeks.fresh){setStatus(`Datos guardados en BigQuery · corte ${cachedRadar.data.target_date} · caché local.`);return}
+    }else if(!root.dataset.loaded||root.dataset.platform!==currentPlatform){root.dataset.loaded='';root.innerHTML=`<div class="radar-loading" role="status" aria-live="polite">Cargando señales de ${currentPlatform==='x'?'X':'TikTok'}…</div>`}
+    setStatus(hasCachedView?'Mostrando datos guardados · actualizando en segundo plano…':'Consultando señales guardadas en BigQuery…');
+    const [radarResponse,historyResponse,weeksData]=await Promise.all([
+      fetch(`/api/trends/radar?market=CO&platform=${encodeURIComponent(currentPlatform)}${selected?`&week_start=${encodeURIComponent(selected)}`:''}`,{headers:authHeaders()}),
+      fetch(`/api/trends/radar/history?market=CO&weeks=12&platform=${encodeURIComponent(currentPlatform)}`,{headers:authHeaders()}),
+      fetchRadarWeeks(currentPlatform)
     ]);
-    const data=await radarResponse.json(),history=await historyResponse.json();
+    const [data,history]=await Promise.all([radarResponse.json(),historyResponse.json()]);
     if(!radarResponse.ok)throw Error(data.detail||'No se pudo cargar el radar.');
     if(!historyResponse.ok)throw Error(history.detail||'No se pudo consultar el histórico semanal.');
-    radarHistory=history;
-    if(!selected){await loadWeeks(radarPlatform);const newest=radarWeeks[0];if(newest){const select=document.querySelector('#radar-week');if(select)select.value=newest.week_start}}
-    root.dataset.loaded='true';renderRadar(data);setStatus(radarPlatform==='x'&&!data.topics?.length?'Aún no hay cortes de X guardados. Usa “Recolectar tendencias de X” para iniciar uno.':`Datos guardados en BigQuery · corte ${data.target_date}.`);
-  }catch(error){setStatus(error.message);if(!root.dataset.loaded)root.innerHTML=`<div class="radar-empty-state">${radarEscape(error.message)}</div>`}
+    radarCache.set(radarKey,{data,savedAt:Date.now()});radarCache.set(historyKey,{data:history,savedAt:Date.now()});
+    if(requestId!==radarLoadSequence)return;
+    radarHistory=history;radarWeeks=weeksData;renderRadarWeeks(weeksData,currentPlatform);
+    if(!selected){const newest=weeksData[0];if(newest){const select=document.querySelector('#radar-week');if(select)select.value=newest.week_start}}
+    root.dataset.loaded='true';root.dataset.platform=currentPlatform;renderRadar(data);setStatus(currentPlatform==='x'&&!data.topics?.length?'Aún no hay cortes de X guardados. Usa “Recolectar tendencias de X” para iniciar uno.':`Datos guardados en BigQuery · corte ${data.target_date}.`);
+  }catch(error){if(requestId!==radarLoadSequence)return;if(root.dataset.loaded){setStatus(`No se pudo actualizar. Se conserva la última lectura. ${error.message}`)}else{setStatus(error.message);root.innerHTML=`<div class="radar-empty-state">${radarEscape(error.message)}</div>`}}
 }
 async function pollRadarRun(runId,targetDate,status,label,scene=null){
   for(let attempt=0;attempt<40;attempt++){
@@ -133,7 +157,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       const completedRuns=[];
       for(const [index,run] of (data.runs||[]).entries()){const id=run.runId||run.run_id;if(!id)continue;const endpoint=String(run.endpoint||''),isChart=endpoint.endsWith('fetch_music_chart_list'),isX=endpoint.includes('/twitter/');completedRuns.push(await pollRadarRun(id,targetDate,status,isX?'tendencias de X':isChart?'chart de audios':'hashtags',isChart?index-1:null))}
       if(platform==='x'){
-        if(weekSelect)weekSelect.value='';await loadRadar('',platform);
+        if(weekSelect)weekSelect.value='';invalidateRadarCache(platform);await loadRadar('',platform);
         if(status)status.textContent=`Tendencias de X guardadas en BigQuery · captura ${targetDate}.`;
         return;
       }
@@ -144,7 +168,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       const enrich=await fetch('/api/trends/radar/enrich',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:JSON.stringify({market:'CO',target_date:targetDate,hashtags:discovered})});
       const enrichText=await enrich.text();let enrichData;try{enrichData=JSON.parse(enrichText)}catch{throw Error(`No se pudo iniciar la búsqueda de contenido (${enrich.status}): ${enrichText.slice(0,220)}`)}
       if(!enrich.ok)throw Error(enrichData.detail||'No se pudieron buscar publicaciones.');
-      await pollRadarRun(enrichData.runId||enrichData.run_id,targetDate,status,'publicaciones y audios');
+      await pollRadarRun(enrichData.runId||enrichData.run_id,targetDate,status,'publicaciones y audios');invalidateRadarCache(platform);
       await loadWeeks(platform);if(weekSelect){const monday=new Date(`${targetDate}T12:00:00`);monday.setDate(monday.getDate()-((monday.getDay()+6)%7));weekSelect.value=`${monday.getFullYear()}-${String(monday.getMonth()+1).padStart(2,'0')}-${String(monday.getDate()).padStart(2,'0')}`}await loadRadar(weekSelect?.value||'',platform);if(status)status.textContent=`Lectura semanal guardada en BigQuery · captura ${targetDate}.`;
     }catch(error){if(status)status.textContent=error.message}
     finally{button.disabled=false}
