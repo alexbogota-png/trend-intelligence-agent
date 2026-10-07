@@ -1,5 +1,8 @@
 .venv/
+node_modules/
 __pycache__/
 *.pyc
+.pytest_cache/
 .env
 data/history.json
+data/weekly_pages.json

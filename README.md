@@ -113,28 +113,27 @@ Abre `http://127.0.0.1:8000`.
 ## Estructura del proyecto
 
 ```text
-app.py
-requirements.txt
-config/
-  brands.json
-  rules.json
-core/
-  agent_graph.py
-  extractors.py
-  llm.py
-  normalizer.py
-  scoring.py
-  weekly.py
-static/
-  index.html
-  app.js
-  auth.js
-  navigation.js
-  styles.css
-  weekly.css
-examples/
-  sample_trend.csv
+app.py                         # Entrada FastAPI y rutas de Vercel
+requirements.txt               # Dependencias de Python
+.env.example                   # Plantilla de variables, sin secretos
+config/                        # Portafolio y reglas
+core/                          # Integraciones, análisis y persistencia
+static/                        # Interfaz, dashboard y chat
+examples/                      # Archivos de ejemplo
+data/
+  raw/                          # Fuentes originales locales
+scripts/
+  exports/                      # Generación de Excel
+  inspection/                   # Herramientas de inspección
+  qa/                           # Comprobaciones manuales
+  reports/                      # Generación de PDFs
+artifacts/
+  exports/                      # Excel y vistas previas exportadas
+  reports/                      # PDFs finales
+  previews/                     # Imágenes de revisión
 ```
+
+`app.py`, `requirements.txt` y los archivos de configuración de despliegue permanecen en la raíz para conservar el punto de entrada de Vercel. Los archivos dentro de `data/raw/` y `artifacts/` son insumos y resultados del trabajo, no dependencias del servidor.
 
 ## Limitaciones conocidas
 
