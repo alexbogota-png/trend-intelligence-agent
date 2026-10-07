@@ -72,7 +72,7 @@ async function loadWeeks(){
 }
 async function loadRadar(weekStart=''){
   const root=document.querySelector('#trend-radar-dashboard');if(!root)return;
-  if(!root.dataset.loaded)root.innerHTML='<div class="radar-loading">Cargando las últimas señales guardadas…</div>';
+  if(!root.dataset.loaded)root.innerHTML='<div class="radar-loading" role="status" aria-live="polite">Consultando señales guardadas en BigQuery…</div>';
   try{
     setStatus('Actualizando datos guardados…');
     const selected=weekStart||document.querySelector('#radar-week')?.value||'';

@@ -107,3 +107,9 @@ button:hover{background:#1745bb;box-shadow:0 5px 16px rgba(36,87,214,.18)}
 .method-section h2{color:var(--dark);letter-spacing:-.045em}
 .method-grid article{background:#fff;border-color:#e5e5ea;border-radius:18px}
 @media(max-width:720px){main{padding:28px 16px 56px}.hero{padding:32px 2px 8px;margin-bottom:42px}.hero p{font-size:17px}.weekly-heading{gap:18px}.weekly-heading h2{font-size:36px}.weekly-heading p{font-size:15px}.week-navigation{min-width:0}.weekly-primary-actions{align-items:start}}
+.radar-loading{position:relative;display:flex;min-height:210px;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:28px 16px;border:1px solid #e5e5ea;border-radius:18px;background:radial-gradient(ellipse at 50% 0%,#f7f9ff 0%,#fff 72%);color:#6e6e73;font-size:14px;font-weight:500;letter-spacing:-.01em}
+.radar-loading::before{content:"";width:38px;height:38px;border:3px solid #e7e9ef;border-top-color:var(--primary);border-right-color:#78a0ff;border-radius:50%;animation:radar-loading-spin .9s linear infinite}
+.radar-loading::after{content:"";width:74px;height:3px;border-radius:99px;background:linear-gradient(90deg,#e8eaf0 0%,var(--primary) 48%,#e8eaf0 100%);background-size:220% 100%;animation:radar-loading-sweep 1.6s ease-in-out infinite}
+@keyframes radar-loading-spin{to{transform:rotate(360deg)}}
+@keyframes radar-loading-sweep{0%,100%{background-position:100% 0}50%{background-position:0 0}}
+@media(prefers-reduced-motion:reduce){.radar-loading::before,.radar-loading::after{animation:none}}
