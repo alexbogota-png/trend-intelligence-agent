@@ -7,13 +7,14 @@ from datetime import datetime, timezone, date, timedelta
 from pathlib import Path
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException, Header
 from pydantic import BaseModel
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from core.extractors import extract
 from core.normalizer import normalize
 from core.agent_graph import run_trend_agent, run_weekly_agent
 from core.weekly import mentions_to_source
 from core.llm import ask_weekly_chat
+from core.presentation_report import create_report as create_presentation_report
 from core import bigquery_repository as bq
 from core.monid import MonidError, get_run, start_run, start_provider_run
 
@@ -26,6 +27,8 @@ BRANDS = json.loads((ROOT / "config/brands.json").read_text(encoding="utf-8"))
 HISTORY_FILE = ROOT / "data" / "history.json"
 WEEKLY_FILE = ROOT / "data" / "weekly_pages.json"
 MAX_FILE_SIZE = 25 * 1024 * 1024
+MAX_PRESENTATION_FILE_SIZE = 4_000_000
+MAX_PRESENTATION_REPORT_SIZE = 4_000_000
 
 @app.get("/")
 def home(): return FileResponse(ROOT / "static/index.html")
@@ -595,3 +598,25 @@ async def analyze(file: UploadFile = File(...), brand_id: str = Form(...), autho
     except (OSError, ValueError):
         pass
     return response
+
+@app.post("/api/presentation/report")
+async def presentation_report(file: UploadFile = File(...), authorization: str | None = Header(default=None)):
+    require_user(authorization)
+    filename = file.filename or "presentacion.pptx"
+    if Path(filename).suffix.lower() != ".pptx":
+        raise HTTPException(400, "Para generar el reporte, carga una presentación PPTX.")
+    data = await file.read()
+    if len(data) > MAX_PRESENTATION_FILE_SIZE:
+        raise HTTPException(413, "Esta versión admite presentaciones de hasta 4 MB. Reduce el tamaño del PPTX e inténtalo de nuevo.")
+    try:
+        report = create_presentation_report(data, filename)
+    except Exception as exc:
+        logger.exception("Presentation report generation failed")
+        raise HTTPException(400, f"No se pudo leer la presentación: {str(exc)[:200]}")
+    if len(report.encode("utf-8")) > MAX_PRESENTATION_REPORT_SIZE:
+        raise HTTPException(413, "El reporte con las imágenes supera el límite de entrega. Reduce el peso de las imágenes en la presentación e inténtalo de nuevo.")
+    return Response(
+        content=report,
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="resumen-presentacion.html"'},
+    )
