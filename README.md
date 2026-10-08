@@ -17,6 +17,10 @@ Permite cargar archivos PDF, XLSX, CSV y PPTX, seleccionar una marca o comparar 
 - Recomendación de activación.
 - Comparación y ranking de marcas.
 
+En la pestaña **Evaluar un archivo**, el modo **Resumir presentación PPT** genera un HTML autocontenido con la imagen de marca Social First Lab, síntesis ejecutiva, hallazgos enlazados a sus diapositivas y las imágenes originales. La imagen de marca se optimiza y se incrusta en el HTML, por lo que el archivo descargado no depende de una ruta externa. Con `OPENAI_API_KEY` disponible, genera interpretación con IA usando texto editable, tablas, gráficos y notas. Las imágenes se conservan como referencia visual y no se describen automáticamente. Sin una clave válida, el HTML presenta el contenido extraído e indica que no generó interpretación con IA. En Vercel, este modo limita tanto el PPTX como el HTML resultante a 4 MB para mantenerse bajo los límites de payload de la plataforma.
+
+El acceso del sitio usa un código OTP enviado por Supabase Auth. La interfaz no ofrece crear cuentas y solicita `shouldCreateUser: false`, así que solo pueden ingresar usuarios que ya existan en el proyecto Supabase. Para que llegue un código numérico, en Supabase abre **Authentication > Email Templates > Magic Link or OTP** y usa `{{ .Token }}` en la plantilla; si la plantilla mantiene `{{ .ConfirmationURL }}`, Supabase enviará un enlace en vez del código. Configura un proveedor SMTP propio para entregabilidad de producción y confirma que el proveedor Email esté habilitado. Las sesiones ya iniciadas se mantienen hasta cerrar sesión o expirar según la configuración de Supabase.
+
 Los scores son determinísticos y se configuran en `config/rules.json`. El conocimiento inicial de cada marca está en `config/brands.json`.
 
 ### One Page semanal
