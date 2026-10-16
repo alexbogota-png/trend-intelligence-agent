@@ -5,6 +5,8 @@ const radarInteractions=row=>Number(row.likes||0)+Number(row.comments||0)+Number
 const radarPostTitle=row=>{const title=radarEscape(row.title||'Publicación sin texto');const url=String(row.url||'');return /^https:\/\/(www\.)?tiktok\.com\//i.test(url)?`<a href="${radarEscape(url)}" target="_blank" rel="noopener noreferrer">${title}</a>`:title};
 let radarHistory=[];
 let radarWeeks=[];
+let radarHistorySelection=[];
+let radarCurrentData=null;
 let radarPlatform='tiktok';
 const radarCache=new Map();
 const RADAR_TTL_MS=60_000;
@@ -16,9 +18,21 @@ function radarRank(rows,label,value,detail,format=radarNumber){
   const max=Math.max(1,...rows.map(value));
   return `<ol class="radar-rank">${rows.slice(0,8).map((row,index)=>`<li><div class="rank-copy"><span class="rank-number">${String(index+1).padStart(2,'0')}</span><div><strong>${label(row)}</strong><small>${detail(row)}</small><div class="rank-track"><i style="width:${Math.max(4,(value(row)/max)*100)}%"></i></div></div></div><b>${format(value(row),row)}</b></li>`).join('')}</ol>`;
 }
-function trendChart(history,weeks){
+function historyWeekFilter(weeks){
+  const fmt=new Intl.DateTimeFormat('es-CO',{day:'2-digit',month:'short'});
+  const selected=radarHistorySelection.length?new Set(radarHistorySelection):new Set(weeks.map(item=>String(item.week_start)));
+  const options=weeks.map(item=>{
+    const start=new Date(`${item.week_start}T12:00:00`),end=new Date(start);end.setDate(end.getDate()+6);
+    const label=`${fmt.format(start)} – ${fmt.format(end)}`;
+    return `<label class="history-week-option"><input type="checkbox" data-history-week="${radarEscape(item.week_start)}" ${selected.has(String(item.week_start))?'checked':''}><span>${label}</span><small>${Number(item.snapshot_days||0)} ${Number(item.snapshot_days||0)===1?'corte':'cortes'}</small></label>`;
+  }).join('');
+  const summary=selected.size===weeks.length?'Todas las semanas':`${selected.size} de ${weeks.length} semanas`;
+  return `<details class="history-week-filter"><summary><span>Comparar semanas</span><b>${summary}</b></summary><div class="history-week-options">${options}</div></details>`;
+}
+function trendChart(history,weeks,selection=[]){
   const historyKeys=new Set(history.map(row=>String(row.week_start)));
-  const orderedWeeks=weeks.filter(item=>historyKeys.has(String(item.week_start))).sort((a,b)=>String(a.week_start).localeCompare(String(b.week_start)));
+  const selectionSet=new Set(selection);
+  const orderedWeeks=weeks.filter(item=>historyKeys.has(String(item.week_start))&&(!selection.length||selectionSet.has(String(item.week_start)))).sort((a,b)=>String(a.week_start).localeCompare(String(b.week_start)));
   const weekKeys=orderedWeeks.map(item=>String(item.week_start));
   if(weekKeys.length<2)return `<div class="trend-history-empty">${weekKeys.length?'Hay una sola semana observada. Se necesitan al menos dos semanas guardadas para mostrar evolución.':'Todavía no hay capturas semanales de hashtags.'}</div>`;
   const latest=weekKeys.at(-1);
@@ -75,13 +89,56 @@ function renderRadar(data){
   const root=document.querySelector('#trend-radar-dashboard');if(!root)return;
   const hashtags=data.hashtags||[],posts=data.posts||[],sounds=data.sounds||[],globalSounds=data.global_sounds||[];
   const views=posts.reduce((sum,row)=>sum+Number(row.views||0),0),interactions=posts.reduce((sum,row)=>sum+radarInteractions(row),0),sources=data.sources||{};
-  root.innerHTML=`<section class="radar-evolution"><header><div><span class="radar-eyebrow">HISTÓRICO SEMANAL</span><h3>Qué gana y qué pierde fuerza</h3><p>Comparación de conversaciones a través de los cortes guardados.</p></div><span class="radar-history-count">${radarWeeks.length} semanas con captura</span></header>${trendChart(radarHistory,radarWeeks)}</section><div class="radar-summary"><div><span class="radar-eyebrow">${radarEscape(data.period_label||'LECTURA SEMANAL')}</span><h3>Señales para explorar</h3><p>${radarEscape(data.target_date||'')} · Evidencia consultada en BigQuery · ${radarEscape(data.market||'CO')}</p></div><span class="radar-bq-badge"><i></i> BigQuery</span></div>
+  radarCurrentData=data;
+  root.innerHTML=`<section class="radar-evolution"><header><div><span class="radar-eyebrow">HISTÓRICO SEMANAL</span><h3>Qué gana y qué pierde fuerza</h3><p>Compara la evolución de las señales entre varias semanas.</p></div><div class="radar-history-tools">${historyWeekFilter(radarWeeks)}<span class="radar-history-count">${radarWeeks.length} semanas guardadas</span></div></header><div class="radar-history-chart">${trendChart(radarHistory,radarWeeks,radarHistorySelection)}</div></section><div class="radar-summary"><div><span class="radar-eyebrow">${radarEscape(data.period_label||'LECTURA SEMANAL')}</span><h3>Señales para explorar</h3><p>${radarEscape(data.target_date||'')} · Evidencia consultada en BigQuery · ${radarEscape(data.market||'CO')}</p></div><span class="radar-bq-badge"><i></i> BigQuery</span></div>
     <div class="radar-kpis"><article><span>CONVERSACIONES</span><strong>${radarNumber(hashtags.length)}</strong><small>hashtags del corte</small></article><article><span>PUBLICACIONES</span><strong>${radarNumber(posts.length)}</strong><small>encontradas esta semana</small></article><article><span>VISTAS OBSERVADAS</span><strong>${radarNumber(views)}</strong><small>en la muestra de publicaciones</small></article><article><span>INTERACCIONES</span><strong>${radarNumber(interactions)}</strong><small>me gusta, comentarios y compartidos</small></article><article><span>AUDIOS</span><strong>${radarNumber(sounds.length)}</strong><small>asociados a publicaciones observadas</small></article></div>
     <div class="radar-panels"><article class="radar-panel radar-topics"><header><div><span class="radar-eyebrow">TEMAS</span><h4>Conversaciones detectadas</h4></div><small>Hashtags · ${radarEscape(sources.hashtags||'últimos 7 días')}</small></header>${radarRank(hashtags,row=>`#${radarEscape(row.hashtag_name)}`,row=>Number(row.views||row.publish_count||0),row=>`${radarNumber(row.publish_count)} publicaciones · ${radarNumber(row.views)} vistas estimadas`)}</article>
     <article class="radar-panel radar-posts"><header><div><span class="radar-eyebrow">CONTENIDO</span><h4>Publicaciones destacadas</h4></div><small>Ordenadas por interacciones</small></header>${radarRank(posts,radarPostTitle,row=>radarInteractions(row),row=>`${radarEscape(row.author||'Cuenta desconocida')} · ${radarNumber(row.views)} vistas · ${radarNumber(radarInteractions(row))} interacciones`)}</article>
     <article class="radar-panel radar-audios"><header><div><span class="radar-eyebrow">SONIDO · CO</span><h4>Audios en publicaciones</h4></div><small>Uso dentro de la muestra</small></header>${radarRank(sounds,row=>radarEscape(row.sound_name||'Audio sin título'),row=>Number(row.video_count||0),row=>`${radarEscape(row.sound_author||'Artista sin identificar')} · ${radarNumber(row.video_count)} publicaciones · ${radarNumber(row.views)} vistas`)}</article>
     <article class="radar-panel radar-global-audios"><header><div><span class="radar-eyebrow">CHART · GLOBAL</span><h4>Top y virales</h4></div><small>Top 50 + Viral 50</small></header>${radarRank(globalSounds,row=>radarEscape(row.sound_name||'Audio sin título'),row=>Math.max(1,51-Number(row.chart_rank||50)),row=>`${radarEscape(row.sound_author||'Artista sin identificar')} · ${Number(row.chart_scene)===1?'viral':'top'}`,(_value,row)=>row.chart_rank?`#${radarNumber(row.chart_rank)}`:'Posición N/D')}</article></div>
     <p class="radar-method-note">Cobertura: hashtags de los últimos 7 días; publicaciones de la semana en curso; charts de audio sin filtro de país, por lo que se presentan como referencia global. Vistas e interacciones son de la muestra encontrada, no del total de TikTok.</p>`;
+}
+function sampleTrendChart(data){
+  const series=[['Rock al Parque','rockalparque','#244bd6'],['EDC','edc','#00a78a'],['LIVECanBeEasy','livecanbeeasy','#d27732']],points=data.trend_curve||[];
+  if(points.length<2)return '<div class="radar-empty-state">No hay suficientes puntos para mostrar la curva.</div>';
+  const w=760,h=230,l=42,r=12,t=12,b=34,iw=w-l-r,ih=h-t-b,x=i=>l+i*iw/(points.length-1),y=v=>t+ih-(Number(v||0)/100)*ih;
+  const grid=[0,25,50,75,100].map(v=>`<line x1="${l}" y1="${y(v)}" x2="${w-r}" y2="${y(v)}" class="trend-chart-grid"/><text x="${l-8}" y="${y(v)+4}" text-anchor="end" class="trend-chart-axis">${v}</text>`).join('');
+  const lines=series.map(([name,key,color])=>{const coords=points.map((p,i)=>`${x(i)},${y(p[key])}`).join(' ');return `<polyline points="${coords}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><title>${name}</title></polyline>${points.map((p,i)=>`<circle cx="${x(i)}" cy="${y(p[key])}" r="3.5" fill="${color}"><title>${name} · ${p.day} · ${p[key]}</title></circle>`).join('')}`}).join('');
+  const labels=points.map((p,i)=>`<text x="${x(i)}" y="${h-10}" text-anchor="middle" class="trend-chart-axis">${p.day}</text>`).join('');
+  const legend=series.map(([name,,color])=>`<span><i style="--trend-color:${color}"></i>${name}</span>`).join('');
+  return `<svg class="trend-history-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Curva relativa de popularidad de siete días">${grid}${lines}${labels}</svg><div class="sample-chart-legend">${legend}</div>`;
+}
+function renderSampleRadar(data,filter='all',showAll=false){
+  const root=document.querySelector('#trend-radar-dashboard');if(!root)return;
+  const topics=(data.topics||[]).filter(row=>filter==='all'||row.platform.toLowerCase()===filter);
+  const posts=(data.posts||[]).filter(row=>filter==='all'||row.platform.toLowerCase()===filter);
+  const ttCount=(data.posts||[]).filter(row=>row.platform==='TikTok').length,xExamples=(data.posts||[]).filter(row=>row.platform==='X').length;
+  const kpis=filter==='x'?[['TEMAS X',topics.length,'en esta captura'],['RESULTADOS ÚNICOS',data.quality.x_unique,'tras deduplicar'],['EJEMPLOS ENLAZADOS',xExamples,'muestra de publicaciones'],['DUPLICADOS',data.quality.x_deduplicated,'retirados']]:filter==='tiktok'?[['TEMAS TIKTOK',topics.length,'en esta captura'],['VIDEOS DE EJEMPLO',ttCount,'58 recibidos'],['RECIENTES',data.quality.tiktok_recent,'en la ventana'],['CHARTS DE AUDIO',data.quality.audio_global_entries,'globales']]:[['TEMAS',topics.length,'en esta vista'],['VIDEOS TIKTOK',ttCount,'muestra recibida'],['RESULTADOS ÚNICOS X',data.quality.x_unique,'13 ejemplos enlazados'],['AUDIOS',data.quality.audio_global_entries,'charts globales']];
+  const kpiHtml=kpis.map(([label,value,detail])=>`<article><span>${label}</span><strong>${radarNumber(value)}</strong><small>${detail}</small></article>`).join('');
+  const platforms=filter==='all'?['TikTok','X']:[filter==='x'?'X':'TikTok'];
+  const postGroups=platforms.map(platform=>{
+    const rows=posts.filter(row=>row.platform===platform).sort((a,b)=>Number(b.interactions??(Number(b.likes||0)+Number(b.comments||0)+Number(b.shares||0)))-Number(a.interactions??(Number(a.likes||0)+Number(a.comments||0)+Number(a.shares||0))));
+    const selected=showAll?rows:rows.slice(0,5);
+    const list=selected.map((row,index)=>{
+      const interactions=Number(row.interactions??(Number(row.likes||0)+Number(row.comments||0)+Number(row.shares||0)));
+      return `<li><div class="sample-post-rank">${String(index+1).padStart(2,'0')}</div><div class="sample-post-main"><a href="${radarEscape(row.url)}" target="_blank" rel="noopener noreferrer">Abrir publicación de ${radarEscape(row.platform)}</a><small>${radarEscape(row.topic)} · ${radarEscape(row.published_at)} · ${radarEscape(row.source)}</small><small>${radarEscape(row.geo_evidence)}</small><span>${radarNumber(row.views)} vistas observadas · ${radarNumber(interactions)} interacciones</span></div></li>`;
+    }).join('');
+    return `<div class="sample-post-group"><h5>${platform} · ${showAll?rows.length:Math.min(rows.length,5)} de ${rows.length} ejemplos</h5><ol class="sample-post-list">${list}</ol></div>`;
+  }).join('');
+  const topicHtml=topics.map(row=>{
+    const isTiktok=row.platform==='TikTok';const metric=isTiktok?`${radarNumber(row.posts)} publicaciones · ${radarNumber(row.views)} vistas del hashtag`:`${radarNumber(row.results)} resultados · ${radarNumber(row.recent)} recientes · ${radarNumber(row.old)} antiguos`;
+    return `<article class="sample-topic-card"><div><span>${radarEscape(row.platform)}</span><h4>${radarEscape(row.name)}</h4></div><strong>${metric}</strong><p>${radarEscape(row.geo)}</p></article>`;
+  }).join('');
+  const recency=topics.filter(row=>row.platform==='X').map(row=>`<div class="sample-recency-row"><span>${radarEscape(row.name)}</span><div><i style="width:${Math.max(2,100*Number(row.recent||0)/(Number(row.recent||0)+Number(row.old||0)))}%"></i></div><small>${row.recent}/${Number(row.recent||0)+Number(row.old||0)} recientes</small></div>`).join('');
+  root.innerHTML=`<div class="radar-summary"><div><span class="radar-eyebrow">${radarEscape(data.capture_date)} · MUESTRA MANUAL</span><h3>Conversaciones y tendencias · Colombia</h3><p>Captura de prueba para revisar temas, evidencia, frescura y métricas en el sitio.</p></div><span class="sample-local-badge">Vista de prueba · no está en BigQuery</span></div>
+    <div class="sample-filter-row" role="group" aria-label="Filtrar la captura por plataforma"><span>Ver</span><button type="button" data-sample-filter="all" class="${filter==='all'?'is-active':''}">Todo</button><button type="button" data-sample-filter="tiktok" class="${filter==='tiktok'?'is-active':''}">TikTok</button><button type="button" data-sample-filter="x" class="${filter==='x'?'is-active':''}">X</button></div>
+    <div class="radar-kpis sample-kpis">${kpiHtml}</div>
+    <section class="sample-chart-panel"><header><div><span class="radar-eyebrow">TIKTOK · 7 DÍAS</span><h4>Popularidad relativa de los temas</h4></div><small>Índice de la fuente, no volumen ni geolocalización</small></header>${filter==='x'?'<div class="radar-empty-state">X no devolvió una serie diaria comparable. Abajo se muestra la distribución de antigüedad de los resultados.</div>':sampleTrendChart(data)}${filter==='x'?`<div class="sample-recency-chart">${recency}</div>`:''}</section>
+    <section class="sample-topics-section"><header><div><span class="radar-eyebrow">TEMAS Y CALIDAD</span><h4>Señales detectadas</h4></div><small>La fuente CO no confirma que cada publicación sea de Colombia</small></header><div class="sample-topic-grid">${topicHtml}</div></section>
+    <section class="sample-posts-section"><header><div><span class="radar-eyebrow">EVIDENCIA</span><h4>Publicaciones de ejemplo</h4></div><small>Ranking separado por plataforma, según las métricas disponibles</small></header>${postGroups||'<div class="radar-empty-state">No hay ejemplos en esta plataforma.</div>'}${posts.length>5&&!showAll?`<button class="sample-show-all" type="button" data-sample-expand>Ver todos los ejemplos de esta vista (${radarNumber(posts.length)})</button>`:''}</section>
+    <p class="radar-method-note">${radarEscape(data.audio_note)} X: 190 resultados en dos páginas por tema, 179 publicaciones únicas y 11 duplicados retirados. TikTok: 58 videos, una página por tema. Ubicación de perfil o hashtags no equivale a geolocalización del post. Costos observados: USD ${Number(data.costs.total).toFixed(3)}; no es una factura.</p>`;
+  root.querySelectorAll('[data-sample-filter]').forEach(button=>button.addEventListener('click',()=>renderSampleRadar(data,button.dataset.sampleFilter)));
+  root.querySelector('[data-sample-expand]')?.addEventListener('click',()=>renderSampleRadar(data,filter,true));
 }
 function setStatus(message){const status=document.querySelector('#weekly-status');if(status)status.textContent=message}
 async function loadWeeks(platform=radarPlatform){
@@ -104,6 +161,14 @@ async function loadRadar(weekStart='',platform=null){
   radarPlatform=platform||document.querySelector('#radar-platform')?.value||'tiktok';
   const requestId=++radarLoadSequence,currentPlatform=radarPlatform;
   try{
+    if(currentPlatform==='sample'){
+      const response=await fetch('/static/capture-preview.json',{cache:'no-store'}),data=await response.json();
+      if(!response.ok)throw Error('No se pudo cargar la captura de prueba.');
+      if(requestId!==radarLoadSequence)return;
+      const weekSelect=document.querySelector('#radar-week');if(weekSelect){weekSelect.innerHTML='<option value="2026-10-12">12 oct – 18 oct · captura manual</option>';weekSelect.value='2026-10-12';weekSelect.disabled=true}
+      root.dataset.loaded='true';root.dataset.platform='sample';renderSampleRadar(data);setStatus('Captura manual visible · todavía no se ha guardado en BigQuery.');return;
+    }
+    const weekSelect=document.querySelector('#radar-week');if(weekSelect)weekSelect.disabled=false;
     const selected=weekStart||document.querySelector('#radar-week')?.value||'';
     const radarKey=`${currentPlatform}:${selected||'latest'}`,historyKey=`history:${currentPlatform}`,weeksKey=`weeks:${currentPlatform}`;
     const cachedRadar=cachedRadarValue(radarKey,RADAR_TTL_MS),cachedHistory=cachedRadarValue(historyKey,RADAR_HISTORY_TTL_MS),cachedWeeks=cachedRadarValue(weeksKey,RADAR_WEEKS_TTL_MS);
@@ -141,12 +206,25 @@ async function pollRadarRun(runId,targetDate,status,label,scene=null){
 document.addEventListener('DOMContentLoaded',()=>{
   const button=document.querySelector('#run-trend-radar');if(!button)return;
   const platformSelect=document.querySelector('#radar-platform');
-  const updateCollectLabel=()=>{const label=button.childNodes[0];if(label?.nodeType===Node.TEXT_NODE)label.textContent=platformSelect?.value==='x'?'Recolectar tendencias de X ':'Recolectar esta semana '};
+  if(platformSelect)platformSelect.value='sample';
+  const updateCollectLabel=()=>{const label=button.childNodes[0];if(label?.nodeType===Node.TEXT_NODE)label.textContent=platformSelect?.value==='sample'?'Captura de prueba cargada ':platformSelect?.value==='x'?'Recolectar tendencias de X ':'Recolectar esta semana '};
+  button.disabled=platformSelect?.value==='sample';
   updateCollectLabel();
   const startAutoLoad=()=>{if(!window.getAccessToken?.())return;loadRadar()};
   window.addEventListener('auth:changed',event=>{if(event.detail?.authenticated)startAutoLoad()});startAutoLoad();
   document.querySelector('#radar-week')?.addEventListener('change',event=>loadRadar(event.target.value,radarPlatform));
-  platformSelect?.addEventListener('change',event=>{const weekSelect=document.querySelector('#radar-week');if(weekSelect)weekSelect.value='';updateCollectLabel();loadRadar('',event.target.value)});
+  document.querySelector('#trend-radar-dashboard')?.addEventListener('change',event=>{
+    if(!event.target.matches('[data-history-week]'))return;
+    const root=document.querySelector('#trend-radar-dashboard');
+    const selected=[...root.querySelectorAll('[data-history-week]:checked')].map(input=>input.dataset.historyWeek);
+    if(!selected.length){event.target.checked=true;return}
+    radarHistorySelection=selected;
+    const chart=root.querySelector('.radar-history-chart');
+    if(chart)chart.innerHTML=trendChart(radarHistory,radarWeeks,radarHistorySelection);
+    const summary=root.querySelector('.history-week-filter summary b');
+    if(summary)summary.textContent=selected.length===radarWeeks.length?'Todas las semanas':`${selected.length} de ${radarWeeks.length} semanas`;
+  });
+  platformSelect?.addEventListener('change',event=>{const weekSelect=document.querySelector('#radar-week');if(weekSelect){weekSelect.value='';weekSelect.disabled=event.target.value==='sample'}button.disabled=event.target.value==='sample';updateCollectLabel();loadRadar('',event.target.value)});
   button.onclick=async()=>{
     const targetDate=radarDateKey(),status=document.querySelector('#weekly-status'),weekSelect=document.querySelector('#radar-week'),platformSelect=document.querySelector('#radar-platform'),platform=platformSelect?.value||'tiktok';button.disabled=true;
     try{
