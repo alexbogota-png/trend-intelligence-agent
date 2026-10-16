@@ -49,12 +49,20 @@ $auth('#signup-tab').addEventListener('click', () => {
 });
 $auth('#login-form').addEventListener('submit', async event => {
   event.preventDefault();
-  authStatus.textContent = '';
-  const { error } = await supabaseClient.auth.signInWithPassword({
-    email: $auth('#login-email').value.trim(),
-    password: $auth('#login-password').value,
-  });
-  if (error) authStatus.textContent = error.message;
+  const submitButton = event.currentTarget.querySelector('[type="submit"]');
+  authStatus.textContent = 'Validando correo y contraseña…';
+  submitButton.disabled = true;
+  try {
+    const { error } = await supabaseClient.auth.signInWithPassword({
+      email: $auth('#login-email').value.trim(),
+      password: $auth('#login-password').value,
+    });
+    authStatus.textContent = error ? error.message : '';
+  } catch (error) {
+    authStatus.textContent = error.message || 'No se pudo iniciar sesión.';
+  } finally {
+    submitButton.disabled = false;
+  }
 });
 $auth('#signup-form').addEventListener('submit', async event => {
   event.preventDefault();
