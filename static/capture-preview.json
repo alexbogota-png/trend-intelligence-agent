@@ -3,9 +3,9 @@
   "market": "CO",
   "label": "Captura de prueba manual",
   "costs": {
-    "monid": 0.015,
+    "monid": 0.0236,
     "composio": 0.14925198234,
-    "total": 0.16425198234
+    "total": 0.17285198234
   },
   "quality": {
     "x_records": 190,
@@ -16,6 +16,10 @@
     "tiktok_old": 18,
     "tiktok_pages_per_topic": 1,
     "audio_global_entries": 100,
+    "audio_linked_entries": 10,
+    "audio_detail_calls": 11,
+    "audio_test_calls": 1,
+    "audio_chart_calls": 2,
     "monid_429_attempts": 3
   },
   "topics": [
@@ -135,6 +139,18 @@
     }
   ],
   "audio_note": "Los charts Top 50 y Viral 50 son globales, no localizados a Colombia.",
+  "audios": [
+    {"title":"Coming Up Roses","artist":"Harry Styles","url":"https://www.tiktok.com/music/-7613798254214187009","chart":"Top 50","rank":1,"video_count":165611,"source":"TikHub chart + AnyAPI song details","geography":"Global; sin filtro de país"},
+    {"title":"Nicole Kidman","artist":"ADÉLA","url":"https://www.tiktok.com/music/-7680715246777501713","chart":"Top 50","rank":2,"video_count":135797,"source":"TikHub chart + AnyAPI song details","geography":"Global; sin filtro de país"},
+    {"title":"the feeling","artist":"Steve Lacy","url":"https://www.tiktok.com/music/-7646503537715611649","chart":"Top 50","rank":3,"video_count":15095,"source":"TikHub chart + AnyAPI song details","geography":"Global; sin filtro de país"},
+    {"title":"nothing","artist":"Steve Lacy","url":"https://www.tiktok.com/music/-7662052657323313153","chart":"Top 50","rank":4,"video_count":53214,"source":"TikHub chart + AnyAPI song details","geography":"Global; sin filtro de país"},
+    {"title":"D>E>A>T>H>M>E>T>A>L","artist":"Panchiko","url":"https://www.tiktok.com/music/-7140421880682383362","chart":"Top 50","rank":5,"video_count":113934,"source":"TikHub chart + AnyAPI song details","geography":"Global; sin filtro de país"},
+    {"title":"Bounce it","artist":"vegrhjt","url":"https://www.tiktok.com/music/-7609830978302887953","chart":"Viral 50","rank":1,"video_count":291517,"source":"TikHub chart + AnyAPI song details","geography":"Global; sin filtro de país"},
+    {"title":"Summer Bummer (Lights On)","artist":"Lisset1","url":"https://www.tiktok.com/music/-7675739431417104400","chart":"Viral 50","rank":2,"video_count":18341,"source":"TikHub chart + AnyAPI song details","geography":"Global; sin filtro de país"},
+    {"title":"DIP ON EM","artist":"SouthMemphisHypeman","url":"https://www.tiktok.com/music/-7585687637122631696","chart":"Viral 50","rank":3,"video_count":138926,"source":"TikHub chart + AnyAPI song details","geography":"Global; sin filtro de país"},
+    {"title":"WTF GOIN","artist":"Belly Gang Kushington & 21 Savage","url":"https://www.tiktok.com/music/-7640264360002406416","chart":"Viral 50","rank":4,"video_count":167283,"source":"TikHub chart + AnyAPI song details","geography":"Global; sin filtro de país"},
+    {"title":"SugarCrash!","artist":"Bemax","url":"https://www.tiktok.com/music/-7092433200873474050","chart":"Viral 50","rank":5,"video_count":270513,"source":"TikHub chart + AnyAPI song details","geography":"Global; sin filtro de país"}
+  ],
   "posts": [
     {
       "platform": "TikTok",
